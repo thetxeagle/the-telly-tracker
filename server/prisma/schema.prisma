@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MediaType {
+  MOVIE
+  SHOW
+}
+
+enum LibraryStatus {
+  PLANNED
+  IN_PROGRESS
+  WATCHED
+}
+
+enum RegistrationMode {
+  OPEN
+  INVITE_ONLY
+  CLOSED
+}
+
+model User {
+  id                         String             @id @default(cuid())
+  name                       String
+  email                      String             @unique
+  passwordHash               String
+  isAdmin                    Boolean            @default(false)
+  totpSecretEncrypted        String?
+  totpPendingSecretEncrypted String?
+  totpPendingCreatedAt       DateTime?
+  totpEnabledAt              DateTime?
+  totpLastUsedStep           Int?
+  calendarFeedEnabled        Boolean            @default(false)
+  calendarFeedVersion        Int                @default(0)
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+  library                    LibraryEntry[]
+  progress                   EpisodeProgress[]
+  invitations                Invitation[]       @relation("InvitationCreator")
+  totpRecoveryCodes          TotpRecoveryCode[]
+  loginChallenges            LoginChallenge[]
+}
+
+model TotpRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+  @@index([userId, usedAt])
+}
+
+model LoginChallenge {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model AppSettings {
+  id                    String           @id @default("global")
+  registrationMode      RegistrationMode @default(OPEN)
+  setupComplete         Boolean          @default(false)
+  smtpEnabled           Boolean          @default(false)
+  smtpHost              String?
+  smtpPort              Int?
+  smtpSecure            Boolean          @default(false)
+  smtpUsername          String?
+  smtpPasswordEncrypted String?
+  smtpFromName          String?
+  smtpFromEmail         String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  email       String
+  tokenHash   String    @unique
+  createdById String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  createdBy   User      @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([email, usedAt])
+  @@index([expiresAt])
+}
+
+model Media {
+  id               String         @id @default(cuid())
+  sourceId         String         @unique
+  tmdbId           Int?
+  tvmazeId         Int?           @unique
+  imdbId           String?        @unique
+  thetvdbId        Int?           @unique
+  title            String
+  type             MediaType
+  synopsis         String
+  releaseDate      DateTime
+  endDate          DateTime?
+  productionStatus String?
+  totalSeasons     Int?
+  totalEpisodes    Int?
+  poster           String
+  backdrop         String
+  metadataSyncedAt DateTime?
+  episodesSyncedAt DateTime?
+  syncError        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  episodes         Episode[]
+  library          LibraryEntry[]
+
+  @@unique([type, tmdbId])
+  @@index([metadataSyncedAt])
+}
+
+model Episode {
+  id        String            @id @default(cuid())
+  mediaId   String
+  tmdbId    Int?              @unique
+  tvmazeId  Int?              @unique
+  season    Int
+  number    Int
+  title     String
+  airDate   DateTime
+  runtime   Int
+  image     String            @default("")
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  media     Media             @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  progress  EpisodeProgress[]
+
+  @@unique([mediaId, season, number])
+  @@index([airDate])
+}
+
+model LibraryEntry {
+  id        String        @id @default(cuid())
+  userId    String
+  mediaId   String
+  status    LibraryStatus @default(PLANNED)
+  favorite  Boolean       @default(false)
+  addedAt   DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media     Media         @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, mediaId])
+  @@index([userId, status])
+}
+
+model EpisodeProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  episodeId String
+  watched   Boolean  @default(true)
+  watchedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, episodeId])
+  @@index([userId, watched])
+}

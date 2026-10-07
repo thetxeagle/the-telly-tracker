@@ -1,0 +1,7 @@
+.git
+.gitea
+.env
+**/node_modules
+**/dist
+sessions
+docs

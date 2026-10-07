@@ -1,0 +1,3 @@
+ALTER TABLE "User"
+ADD COLUMN "calendarFeedEnabled" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "calendarFeedVersion" INTEGER NOT NULL DEFAULT 0;

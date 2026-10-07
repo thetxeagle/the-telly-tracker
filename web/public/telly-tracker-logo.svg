@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 202 40" role="img" aria-labelledby="title description">
+  <title id="title">Telly Tracker</title>
+  <desc id="description">A coral clapperboard followed by the Telly Tracker wordmark.</desc>
+  <g fill="none" stroke="#ff625d" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" transform="translate(1.5 3.5) scale(1.36)">
+    <path d="m12.296 3.464 3.02 3.956"/>
+    <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z"/>
+    <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+    <path d="m6.18 5.276 3.1 3.899"/>
+  </g>
+  <text x="41" y="30" fill="#f4eee2" font-family="Georgia, 'Times New Roman', serif" font-size="26" font-weight="700" letter-spacing="-0.7" xml:space="preserve"><tspan fill="#ff625d">Telly</tspan><tspan> Tracker</tspan></text>
+</svg>

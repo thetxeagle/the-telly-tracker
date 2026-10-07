@@ -1,0 +1,62 @@
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-telly_tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-telly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-telly-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-telly} -d ${POSTGRES_DB:-telly_tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - telly-dev-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:3001"
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-telly}:${POSTGRES_PASSWORD:-local-telly-password}@database:5432/${POSTGRES_DB:-telly_tracker}?schema=public&connection_limit=${DATABASE_CONNECTION_LIMIT:-5}&pool_timeout=${DATABASE_POOL_TIMEOUT_SECONDS:-10}"
+      JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-before-deploy}
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      SMTP_ENABLED: ${SMTP_ENABLED:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Telly Tracker}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      PORT: 3001
+      NODE_ENV: production
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:${WEB_PORT:-8080}}
+      CALENDAR_PUBLIC_URL: ${CALENDAR_PUBLIC_URL:-}
+      TMDB_ACCESS_TOKEN: ${TMDB_ACCESS_TOKEN:-}
+      TMDB_API_BASE_URL: ${TMDB_API_BASE_URL:-https://api.themoviedb.org/3}
+      TMDB_IMAGE_BASE_URL: ${TMDB_IMAGE_BASE_URL:-https://image.tmdb.org/t/p}
+      TVMAZE_API_BASE_URL: ${TVMAZE_API_BASE_URL:-https://api.tvmaze.com}
+      PROVIDER_TIMEOUT_MS: ${PROVIDER_TIMEOUT_MS:-8000}
+      PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
+      PROVIDER_SEARCH_CACHE_TTL_MS: ${PROVIDER_SEARCH_CACHE_TTL_MS:-300000}
+      PROVIDER_REFRESH_INTERVAL_MS: ${PROVIDER_REFRESH_INTERVAL_MS:-21600000}
+      PROVIDER_REFRESH_BATCH_SIZE: ${PROVIDER_REFRESH_BATCH_SIZE:-25}
+      DEMO_SEED_DATA: ${DEMO_SEED_DATA:-false}
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  telly-dev-data:

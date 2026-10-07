@@ -15,11 +15,11 @@ type MediaArtworkProps = {
 }
 
 export function MediaArtwork({ backdrop, className, title }: MediaArtworkProps) {
-  const remote = backdrop.startsWith("https://")
+  const imageUrl = backdrop.startsWith("https://") || backdrop.startsWith("/")
   return (
     <div
-      className={cn(className, !remote && seedBackdropClasses[backdrop])}
-      style={remote ? { backgroundImage: `url(${JSON.stringify(backdrop).slice(1, -1)})` } : undefined}
+      className={cn(className, !imageUrl && seedBackdropClasses[backdrop])}
+      style={imageUrl ? { backgroundImage: `url(${JSON.stringify(backdrop).slice(1, -1)})` } : undefined}
       role={title ? "img" : undefined}
       aria-label={title ? `${title} artwork` : undefined}
       aria-hidden={title ? undefined : "true"}

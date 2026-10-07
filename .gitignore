@@ -3,6 +3,7 @@ node_modules/
 dist/
 coverage/
 .playwright-cli/
+output/
 *.log
 .DS_Store
 web/node_modules/

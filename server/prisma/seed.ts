@@ -15,8 +15,8 @@ const mediaSeeds = [
     releaseDate: new Date("2026-02-06T00:00:00.000Z"),
     totalSeasons: 1,
     totalEpisodes: 8,
-    poster: "aurora",
-    backdrop: "aurora",
+    poster: "/demo-posters/northern-lights.webp",
+    backdrop: "/demo-posters/northern-lights.webp",
   },
   {
     sourceId: "seed-second-horizon",
@@ -26,8 +26,8 @@ const mediaSeeds = [
     releaseDate: new Date("2025-11-14T00:00:00.000Z"),
     totalSeasons: 2,
     totalEpisodes: 16,
-    poster: "horizon",
-    backdrop: "horizon",
+    poster: "/demo-posters/second-horizon.webp",
+    backdrop: "/demo-posters/second-horizon.webp",
   },
   {
     sourceId: "seed-echo-ridge",
@@ -37,8 +37,8 @@ const mediaSeeds = [
     releaseDate: new Date("2026-08-21T00:00:00.000Z"),
     totalSeasons: 1,
     totalEpisodes: 6,
-    poster: "ridge",
-    backdrop: "ridge",
+    poster: "/demo-posters/echo-ridge.webp",
+    backdrop: "/demo-posters/echo-ridge.webp",
   },
   {
     sourceId: "seed-deep-between",
@@ -47,8 +47,8 @@ const mediaSeeds = [
     synopsis: "Two oceanographers find a current that should not exist.",
     releaseDate: new Date("2026-10-09T00:00:00.000Z"),
     totalEpisodes: 1,
-    poster: "deep",
-    backdrop: "deep",
+    poster: "/demo-posters/deep-between.webp",
+    backdrop: "/demo-posters/deep-between.webp",
   },
   {
     sourceId: "seed-harbor-within",
@@ -58,8 +58,8 @@ const mediaSeeds = [
     releaseDate: new Date("2026-09-11T00:00:00.000Z"),
     totalSeasons: 1,
     totalEpisodes: 10,
-    poster: "harbor",
-    backdrop: "harbor",
+    poster: "/demo-posters/harbor-within.webp",
+    backdrop: "/demo-posters/harbor-within.webp",
   },
 ] as const
 

@@ -24,6 +24,40 @@ Built on:
 - Express 5
 - Prisma 6
 
+## Screenshots
+
+> Screenshot titles and catalog entries are fictional demonstration content. The poster artwork was AI-generated specifically for Telly Tracker; it does not represent real productions, performers, or licensed show artwork.
+
+![Telly Tracker home dashboard](docs/screenshots/home-dashboard.webp)
+
+<details>
+<summary><strong>View the complete interface gallery</strong></summary>
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/sign-in-desktop.webp" alt="Desktop sign-in"><br><strong>Desktop sign-in</strong></td>
+    <td><img src="docs/screenshots/library.webp" alt="Media library"><br><strong>Library</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/show-detail.webp" alt="Show detail and episode guide"><br><strong>Show detail and episode guide</strong></td>
+    <td><img src="docs/screenshots/discover.webp" alt="Title discovery and JSON import"><br><strong>Discover and import</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/release-calendar.webp" alt="Release calendar"><br><strong>Release calendar</strong></td>
+    <td><img src="docs/screenshots/account-settings.webp" alt="Account security and calendar settings"><br><strong>Account settings</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/admin-access.webp" alt="Administration access settings"><br><strong>Administration: access</strong></td>
+    <td><img src="docs/screenshots/admin-email.webp" alt="Administration email settings"><br><strong>Administration: email</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/admin-users.webp" alt="Administration user management"><br><strong>Administration: users</strong></td>
+    <td align="center"><img src="docs/screenshots/sign-in-mobile.webp" alt="Mobile sign-in" width="260"><br><strong>Mobile sign-in</strong></td>
+  </tr>
+</table>
+
+</details>
+
 ## Features
 
 - Media library import

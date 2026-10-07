@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows Keep
 
 ### Added
 
+- Added an optimized public screenshot gallery covering sign-in, Home, Library, show details, Discover, Release Calendar, Account, and every Administration workspace at desktop and phone widths, using clearly disclosed fictional demo titles and original AI-generated poster art.
 - Added a GitHub Actions publisher for version, main, and immutable SHA application images on GitHub Container Registry.
 - Added a confirmed Upcoming-page action that marks all unwatched episodes and movies released during the last 14 days through today as watched while leaving future releases unchanged.
 - Added reusable full-wordmark and app-mark SVG assets, and displayed the full Telly Tracker logo above the sign-in card when the desktop introduction is hidden.

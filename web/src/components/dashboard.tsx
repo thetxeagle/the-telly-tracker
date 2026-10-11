@@ -112,6 +112,7 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
   const [libraryMessage, setLibraryMessage] = useState<string | null>(null)
   const [recentEpisodeDialogOpen, setRecentEpisodeDialogOpen] = useState(false)
   const [markingRecentEpisodes, setMarkingRecentEpisodes] = useState(false)
+  const [updatingReleaseEpisodeId, setUpdatingReleaseEpisodeId] = useState<string | null>(null)
   const [releaseWindowMessage, setReleaseWindowMessage] = useState<string | null>(null)
   const visibleLibrary = useMemo(() => {
     const normalizedLibraryQuery = libraryQuery.trim().toLowerCase()
@@ -257,6 +258,30 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
   async function setReleaseWatched(item: ReleaseItem) {
     if (item.kind === "EPISODE") await setEpisodeWatched(item.id, !item.watched)
     else await setMovieWatched(item.mediaId, !item.watched)
+  }
+
+  async function setCalendarEpisodeWatched(item: UpcomingItem) {
+    if (item.kind !== "EPISODE" || !hasReleased(item.date) || updatingReleaseEpisodeId) return
+
+    setUpdatingReleaseEpisodeId(item.id)
+    setReleaseWindowMessage(null)
+    try {
+      const watched = !item.watched
+      await api(`/api/episodes/${item.id}`, { method: "PATCH", body: JSON.stringify({ watched }) })
+      if (releaseWindowFilter === "UNWATCHED" && watched) {
+        setUnwatchedReleasePage((page) => ({
+          ...page,
+          items: page.items.filter((release) => release.id !== item.id),
+          total: Math.max(0, page.total - 1),
+        }))
+      }
+      await onRefresh()
+      setReleaseWindowMessage(`${item.title} ${item.detail} marked ${watched ? "watched" : "not watched"}.`)
+    } catch (error) {
+      setReleaseWindowMessage(error instanceof ApiError ? error.message : "The episode watch state could not be updated")
+    } finally {
+      setUpdatingReleaseEpisodeId(null)
+    }
   }
 
   function toggleLibrarySelection(mediaId: string, selected: boolean) {
@@ -669,7 +694,9 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
             <ReleaseWindowGrid
               items={releaseWindowItems}
               onFavorite={toggleFavorite}
+              onEpisodeWatched={setCalendarEpisodeWatched}
               onOpen={openLibraryTitle}
+              updatingEpisodeId={updatingReleaseEpisodeId}
               referenceDate={currentDate}
               emptyMessage={releaseWindowFilter === "UNWATCHED"
                 ? unwatchedLoading
@@ -761,12 +788,13 @@ function LibraryCoverCard({ item, onOpen, onFavorite, selectionMode, selected, o
         <Badge className="library-cover-type" variant="secondary">{item.type === "SHOW" ? "TV show" : "Movie"}</Badge>
       </a>
       {selectionMode ? (
-        <Checkbox
-          className="library-cover-select"
-          checked={selected}
-          onCheckedChange={(checked) => onSelectedChange(checked === true)}
-          aria-label={`Select ${item.title}`}
-        />
+        <span className="library-cover-select">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) => onSelectedChange(checked === true)}
+            aria-label={`Select ${item.title}`}
+          />
+        </span>
       ) : null}
       <Button className="library-cover-favorite" variant="secondary" size="icon" aria-label={`${item.favorite ? "Remove" : "Add"} ${item.title} ${item.favorite ? "from" : "to"} favorites`} onClick={() => onFavorite(item.id, item.favorite)}>
         <HeartIcon className={item.favorite ? "heart-filled" : ""} />
@@ -1105,10 +1133,12 @@ function UpcomingPanel({ items, onFavorite }: {
   )
 }
 
-function ReleaseWindowGrid({ items, onFavorite, onOpen, referenceDate, emptyMessage }: {
+function ReleaseWindowGrid({ items, onFavorite, onEpisodeWatched, onOpen, updatingEpisodeId, referenceDate, emptyMessage }: {
   items: UpcomingItem[]
   onFavorite: (id: string, favorite: boolean) => Promise<void>
+  onEpisodeWatched: (item: UpcomingItem) => Promise<void>
   onOpen: (event: MouseEvent<HTMLAnchorElement>, mediaId: string) => void
+  updatingEpisodeId: string | null
   referenceDate: Date
   emptyMessage: string
 }) {
@@ -1132,6 +1162,21 @@ function ReleaseWindowGrid({ items, onFavorite, onOpen, referenceDate, emptyMess
             <Button className="release-window-favorite" variant="ghost" size="icon" aria-label={`${item.favorite ? "Remove" : "Add"} ${item.title} ${item.favorite ? "from" : "to"} favorites`} onClick={() => onFavorite(item.mediaId, item.favorite)}>
               <HeartIcon className={item.favorite ? "heart-filled" : ""} />
             </Button>
+            {item.kind === "EPISODE" && hasReleased(item.date) ? (
+              <div className="release-window-card-actions">
+                <Button
+                  size="sm"
+                  variant={item.watched ? "secondary" : "outline"}
+                  disabled={updatingEpisodeId !== null}
+                  onClick={() => onEpisodeWatched(item)}
+                >
+                  {updatingEpisodeId === item.id
+                    ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+                    : item.watched ? <CheckIcon data-icon="inline-start" /> : null}
+                  {updatingEpisodeId === item.id ? "Updating…" : item.watched ? "Watched" : "Mark watched"}
+                </Button>
+              </div>
+            ) : null}
           </article>
         )
       })}

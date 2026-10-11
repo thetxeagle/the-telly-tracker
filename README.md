@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thetxeagle/the-telly-tracker/actions/workflows/publish-container.yml"><img alt="Container build" src="https://github.com/thetxeagle/the-telly-tracker/actions/workflows/publish-container.yml/badge.svg?branch=v0.1.0"></a>
-  <a href="CHANGELOG.md"><img alt="Release v0.1.0" src="https://img.shields.io/badge/release-v0.1.0-ff6464?style=flat-square"></a>
+  <a href="https://github.com/thetxeagle/the-telly-tracker/actions/workflows/publish-container.yml"><img alt="Container build" src="https://github.com/thetxeagle/the-telly-tracker/actions/workflows/publish-container.yml/badge.svg?branch=v0.2.0"></a>
+  <a href="CHANGELOG.md"><img alt="Release v0.2.0" src="https://img.shields.io/badge/release-v0.2.0-ff6464?style=flat-square"></a>
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&amp;logo=docker&amp;logoColor=white">
   <img alt="Node.js 22" src="https://img.shields.io/badge/Node.js-22-5FA04E?style=flat-square&amp;logo=nodedotjs&amp;logoColor=white">
   <img alt="PostgreSQL 17" src="https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&amp;logo=postgresql&amp;logoColor=white">
@@ -208,7 +208,7 @@ The complete runtime contract lives in [`.env.example`](.env.example):
 | `WEB_ORIGIN` | Yes | Exact browser origin allowed by CORS and used to select secure cookies; use the public HTTPS URL in production, without a trailing slash. |
 | `CALENDAR_PUBLIC_URL` | No | Public app origin used for ICS subscription and event links; defaults to `WEB_ORIGIN`. |
 | `DEMO_SEED_DATA` | No | Loads the fictional catalog and demo account only when set to `true`. |
-| `APP_IMAGE` | No | Full combined application image reference; defaults to `ghcr.io/thetxeagle/the-telly-tracker:v0.1.0`. |
+| `APP_IMAGE` | No | Full combined application image reference; defaults to `ghcr.io/thetxeagle/the-telly-tracker:v0.2.0`. |
 | `WEB_DIST_DIR` | No | Internal path containing the compiled React application; the published image sets `/app/web-dist`. |
 | `TMDB_ACCESS_TOKEN` | For real metadata | Server-side bearer token for movie/show discovery and artwork. |
 | `TMDB_API_BASE_URL` | No | Overrides the TMDB API endpoint for testing or proxying. |

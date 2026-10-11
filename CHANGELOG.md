@@ -4,8 +4,11 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-11
+
 ### Added
 
+- Added individual watched-state controls to released episode cards on the Release Calendar and moved Library bulk-selection checkboxes onto poster artwork.
 - Added Release Calendar cards that open their Library title, multi-title Library watched and not-watched controls, and newest-first episode ordering on show pages.
 - Added an optimized public screenshot gallery covering sign-in, Home, Library, show details, Discover, Release Calendar, Account, and every Administration workspace at desktop and phone widths, using clearly disclosed fictional demo titles and original AI-generated poster art.
 - Added a GitHub Actions publisher for version, main, and immutable SHA application images on GitHub Container Registry.
@@ -35,6 +38,7 @@ All notable changes to this project are documented here. The format follows Keep
 - Added an administrator portal for reviewing users, selecting Open, Invite only, or Closed registration, and issuing or revoking expiring email invitations.
 - Added `ADMIN_EMAILS` bootstrap administration so trusted existing accounts are promoted on their next sign-in.
 - Added an administrator-run PostgreSQL role configuration script and deployment guidance for existing database servers, DBeaver, role connection limits, and Prisma pool sizing.
+- Added a unified Gitea Actions publisher for the application image with immutable SHA tags, version/main channels, Docker Hub pull-through mirroring, and a persistent registry build cache.
 - Added documented private-registry deployment, upgrade, HTTPS-origin, environment, and PostgreSQL volume-backup guidance for self-hosted servers.
 - Documented server-side TMDB and TVmaze environment configuration for the planned dual-provider metadata integration.
 - Passed provider configuration through Docker Compose without exposing the TMDB token to the frontend bundle.
@@ -50,7 +54,7 @@ All notable changes to this project are documented here. The format follows Keep
 
 ### Changed
 
-- Changed the deployment example and environment template to pull the public `ghcr.io/thetxeagle/the-telly-tracker:v0.1.0` image by default.
+- Changed the deployment example and environment template to pull the public `ghcr.io/thetxeagle/the-telly-tracker:v0.2.0` image by default.
 - Renamed Upcoming to Release Calendar with a matching `#release-calendar` address, moved Account, Administration, and Log out into the user profile menu, and removed the redundant global dashboard search while retaining Library and Discover search.
 - Streamlined the README around features and quick-start deployment, added project and build-status shields, and renamed the checked-in Compose files to distinguish the copyable deployment example from the development stack.
 - Removed the JSON import title-count ceiling and changed TMDB review to user-controlled batches of 25 titles.
@@ -60,7 +64,7 @@ All notable changes to this project are documented here. The format follows Keep
 - The first account on an empty installation now becomes administrator automatically; existing installations with no administrator promote their oldest account during migration.
 - Refocused the dashboard on release tracking: complete episode lists now show air dates and watched state, recent releases can be updated directly, movies expose release-aware watched controls, and Upcoming lists future tracked releases.
 - Bounded each Compose API instance to five PostgreSQL connections by default, with configurable connection-limit and pool-timeout environment settings.
-- Made the combined Compose application image configurable through `APP_IMAGE` and pinned its default to the published `v0.1.0` package, while local development retains source builds.
+- Made the combined Compose application image configurable through `APP_IMAGE` and pinned its default to the published `v0.2.0` package, while local development retains source builds.
 - Made fictional catalog/demo-account seeding explicitly opt-in with `DEMO_SEED_DATA=true`; normal container startup now runs migrations without inserting demo records.
 
 ### Fixed
@@ -97,12 +101,13 @@ All notable changes to this project are documented here. The format follows Keep
 - Catalog discovery, favorites, planned-title actions, and episode-level watched controls.
 - Fictional demo catalog and account for local evaluation.
 - Docker Compose stack with PostgreSQL, Express API, and nginx-hosted frontend.
-- Setup documentation and an initial responsive design foundation.
+- Repository guidance, setup documentation, design source, scratchpad, and session continuity records.
 
 ### Security
 
 - User-scoped API mutations derive identity from verified HTTP-only session cookies.
 - Prisma was pinned to `6.12.0` to avoid the reported `deepmerge-ts` configuration vulnerability.
 
-[Unreleased]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thetxeagle/the-telly-tracker/releases/tag/v0.1.0

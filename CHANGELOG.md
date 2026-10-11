@@ -6,9 +6,10 @@ All notable changes to this project are documented here. The format follows Keep
 
 ### Added
 
+- Added Release Calendar cards that open their Library title, multi-title Library watched and not-watched controls, and newest-first episode ordering on show pages.
 - Added an optimized public screenshot gallery covering sign-in, Home, Library, show details, Discover, Release Calendar, Account, and every Administration workspace at desktop and phone widths, using clearly disclosed fictional demo titles and original AI-generated poster art.
 - Added a GitHub Actions publisher for version, main, and immutable SHA application images on GitHub Container Registry.
-- Added a confirmed Upcoming-page action that marks all unwatched episodes and movies released during the last 14 days through today as watched while leaving future releases unchanged.
+- Added a confirmed Release Calendar action that marks unwatched episodes released during the last 14 days through today as watched while leaving movies and future episodes unchanged.
 - Added reusable full-wordmark and app-mark SVG assets, and displayed the full Telly Tracker logo above the sign-in card when the desktop introduction is hidden.
 - Redesigned Upcoming as a responsive release-card grid with a bounded four-week All releases calendar and a complete Unwatched backlog spanning past, today, and future while keeping the Home preview future-only.
 - Added private per-user internet calendar subscriptions for future tracked episodes and movie releases, with direct `webcal` attachment, URL copying, and Account-page management.

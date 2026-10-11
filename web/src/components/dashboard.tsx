@@ -61,6 +61,7 @@ type DashboardView = "home" | "library" | "discover" | "release-calendar" | "acc
 type LibraryMediaFilter = "ALL" | LibraryItem["type"]
 type LibrarySort = "TITLE_ASC" | "LATEST_EPISODE_DESC" | "RELEASE_DESC" | "RELEASE_ASC"
 type ReleaseWindowFilter = "ALL" | "UNWATCHED"
+type EpisodeSort = "SEASON_ASC" | "NEWEST_FIRST"
 
 const emptyUnwatchedReleasePage: UnwatchedReleasePage = { items: [], total: 0, nextCursor: null }
 
@@ -96,6 +97,9 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
   const [libraryQuery, setLibraryQuery] = useState("")
   const [libraryMediaType, setLibraryMediaType] = useState<LibraryMediaFilter>("ALL")
   const [librarySort, setLibrarySort] = useState<LibrarySort>("TITLE_ASC")
+  const [librarySelectionMode, setLibrarySelectionMode] = useState(false)
+  const [selectedLibraryIds, setSelectedLibraryIds] = useState<Set<string>>(() => new Set())
+  const [libraryBulkUpdating, setLibraryBulkUpdating] = useState(false)
   const [releaseWindowFilter, setReleaseWindowFilter] = useState<ReleaseWindowFilter>("ALL")
   const [unwatchedReleasePage, setUnwatchedReleasePage] = useState<UnwatchedReleasePage>(emptyUnwatchedReleasePage)
   const [unwatchedLoading, setUnwatchedLoading] = useState(false)
@@ -106,8 +110,8 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
   const [duplicateCleanupOpen, setDuplicateCleanupOpen] = useState(false)
   const [cleaningDuplicates, setCleaningDuplicates] = useState(false)
   const [libraryMessage, setLibraryMessage] = useState<string | null>(null)
-  const [recentReleaseDialogOpen, setRecentReleaseDialogOpen] = useState(false)
-  const [markingRecentReleases, setMarkingRecentReleases] = useState(false)
+  const [recentEpisodeDialogOpen, setRecentEpisodeDialogOpen] = useState(false)
+  const [markingRecentEpisodes, setMarkingRecentEpisodes] = useState(false)
   const [releaseWindowMessage, setReleaseWindowMessage] = useState<string | null>(null)
   const visibleLibrary = useMemo(() => {
     const normalizedLibraryQuery = libraryQuery.trim().toLowerCase()
@@ -125,6 +129,10 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
     () => (data.library ?? []).find((item) => item.id === libraryMediaId) ?? null,
     [data.library, libraryMediaId]
   )
+  const selectedLibraryItems = useMemo(
+    () => (data.library ?? []).filter((item) => selectedLibraryIds.has(item.id)),
+    [data.library, selectedLibraryIds]
+  )
   const nextUpcoming = useMemo(
     () => data.upcoming.filter((item) => new Date(item.date).getTime() > currentDate.getTime()),
     [currentDate, data.upcoming]
@@ -135,8 +143,8 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
       : data.upcoming.filter((item) => isInCalendarWindow(item.date, currentDate)),
     [currentDate, data.upcoming, releaseWindowFilter, unwatchedReleasePage.items]
   )
-  const recentUnwatchedReleases = useMemo(
-    () => data.upcoming.filter((item) => !item.watched && isRecentlyReleased(item.date, currentDate)),
+  const recentUnwatchedEpisodes = useMemo(
+    () => data.upcoming.filter((item) => item.kind === "EPISODE" && !item.watched && isRecentlyReleased(item.date, currentDate)),
     [currentDate, data.upcoming]
   )
   useEffect(() => {
@@ -251,20 +259,78 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
     else await setMovieWatched(item.mediaId, !item.watched)
   }
 
-  async function markRecentReleasesWatched() {
-    if (recentUnwatchedReleases.length === 0 || markingRecentReleases) return
+  function toggleLibrarySelection(mediaId: string, selected: boolean) {
+    setSelectedLibraryIds((current) => {
+      const next = new Set(current)
+      if (selected) next.add(mediaId)
+      else next.delete(mediaId)
+      return next
+    })
+  }
 
-    setMarkingRecentReleases(true)
+  function clearLibrarySelection() {
+    setSelectedLibraryIds(new Set())
+  }
+
+  function selectVisibleLibrary() {
+    setSelectedLibraryIds((current) => new Set([...current, ...visibleLibrary.map((item) => item.id)]))
+  }
+
+  function toggleLibrarySelectionMode() {
+    setLibrarySelectionMode((current) => !current)
+    clearLibrarySelection()
+  }
+
+  async function updateSelectedLibraryWatched(watched: boolean) {
+    if (selectedLibraryItems.length === 0 || libraryBulkUpdating) return
+
+    const episodeIds = selectedLibraryItems.flatMap((item) => item.type === "SHOW"
+      ? item.episodes
+          .filter((episode) => hasReleased(episode.airDate) && episode.watched !== watched)
+          .map((episode) => episode.id)
+      : [])
+    const movieIds = selectedLibraryItems
+      .filter((item) => item.type === "MOVIE" && hasReleased(item.releaseDate) && (item.status === "WATCHED") !== watched)
+      .map((item) => item.id)
+
+    if (episodeIds.length === 0 && movieIds.length === 0) {
+      setLibraryMessage(`The selected released titles are already marked ${watched ? "watched" : "not watched"}.`)
+      return
+    }
+
+    setLibraryBulkUpdating(true)
+    setLibraryMessage(null)
+    try {
+      const requests: Array<Promise<unknown>> = movieIds.map((mediaId) => api(`/api/library/${mediaId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: watched ? "WATCHED" : "PLANNED" }),
+      }))
+      const batchSize = 500
+      for (let start = 0; start < episodeIds.length; start += batchSize) {
+        requests.push(api("/api/episodes", {
+          method: "PATCH",
+          body: JSON.stringify({ episodeIds: episodeIds.slice(start, start + batchSize), watched }),
+        }))
+      }
+      await Promise.all(requests)
+      await onRefresh()
+      const selectedCount = selectedLibraryItems.length
+      clearLibrarySelection()
+      setLibraryMessage(`${selectedCount} selected ${selectedCount === 1 ? "title" : "titles"} marked ${watched ? "watched" : "not watched"}. Only released movies and aired episodes were changed.`)
+    } catch (error) {
+      setLibraryMessage(error instanceof ApiError ? error.message : "Selected titles could not be updated")
+    } finally {
+      setLibraryBulkUpdating(false)
+    }
+  }
+
+  async function markRecentEpisodesWatched() {
+    if (recentUnwatchedEpisodes.length === 0 || markingRecentEpisodes) return
+
+    setMarkingRecentEpisodes(true)
     setReleaseWindowMessage(null)
     try {
-      const episodeIds = recentUnwatchedReleases
-        .filter((item) => item.kind === "EPISODE")
-        .map((item) => item.id)
-      const movieIds = [...new Set(
-        recentUnwatchedReleases
-          .filter((item) => item.kind === "MOVIE")
-          .map((item) => item.mediaId)
-      )]
+      const episodeIds = recentUnwatchedEpisodes.map((item) => item.id)
 
       const batchSize = 500
       for (let start = 0; start < episodeIds.length; start += batchSize) {
@@ -273,26 +339,20 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
           body: JSON.stringify({ episodeIds: episodeIds.slice(start, start + batchSize), watched: true }),
         })
       }
-      for (const mediaId of movieIds) {
-        await api(`/api/library/${mediaId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "WATCHED" }),
-        })
-      }
 
-      const markedCount = recentUnwatchedReleases.length
+      const markedCount = recentUnwatchedEpisodes.length
       await onRefresh()
       if (releaseWindowFilter === "UNWATCHED") {
         setUnwatchedReleasePage(emptyUnwatchedReleasePage)
         setUnwatchedLoading(true)
         setUnwatchedReloadToken((value) => value + 1)
       }
-      setReleaseWindowMessage(`Marked ${markedCount} recent ${markedCount === 1 ? "release" : "releases"} watched. Future releases were not changed.`)
+      setReleaseWindowMessage(`Marked ${markedCount} recently released ${markedCount === 1 ? "episode" : "episodes"} watched. Movies and future episodes were not changed.`)
     } catch (error) {
-      setReleaseWindowMessage(error instanceof ApiError ? error.message : "Recent releases could not be marked watched")
+      setReleaseWindowMessage(error instanceof ApiError ? error.message : "Recently released episodes could not be marked watched")
     } finally {
-      setMarkingRecentReleases(false)
-      setRecentReleaseDialogOpen(false)
+      setMarkingRecentEpisodes(false)
+      setRecentEpisodeDialogOpen(false)
     }
   }
 
@@ -457,6 +517,9 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
                         <NativeSelectOption value="RELEASE_ASC">Oldest title</NativeSelectOption>
                       </NativeSelect>
                     </label>
+                    <Button variant={librarySelectionMode ? "secondary" : "outline"} size="sm" onClick={toggleLibrarySelectionMode}>
+                      <CheckIcon data-icon="inline-start" />{librarySelectionMode ? "Done selecting" : "Select titles"}
+                    </Button>
                     {data.summary.duplicateEntries > 0 ? (
                       <AlertDialog open={duplicateCleanupOpen} onOpenChange={setDuplicateCleanupOpen}>
                         <AlertDialogTrigger render={<Button variant="outline" size="sm" />}>
@@ -481,8 +544,32 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
                     <p className="library-result-count" aria-live="polite">{visibleLibrary.length} {visibleLibrary.length === 1 ? "title" : "titles"}</p>
                   </div>
                 </div>
+                {librarySelectionMode ? (
+                  <div className="library-bulk-toolbar" aria-label="Bulk library actions">
+                    <span>{selectedLibraryIds.size} selected</span>
+                    <Button size="sm" variant="ghost" disabled={libraryBulkUpdating || visibleLibrary.length === 0 || visibleLibrary.every((item) => selectedLibraryIds.has(item.id))} onClick={selectVisibleLibrary}>Select visible</Button>
+                    <Button size="sm" variant="ghost" disabled={libraryBulkUpdating || selectedLibraryIds.size === 0} onClick={clearLibrarySelection}>Clear</Button>
+                    <div className="library-bulk-actions">
+                      <Button size="sm" variant="outline" disabled={libraryBulkUpdating || selectedLibraryIds.size === 0} onClick={() => updateSelectedLibraryWatched(false)}>Mark not watched</Button>
+                      <Button size="sm" disabled={libraryBulkUpdating || selectedLibraryIds.size === 0} onClick={() => updateSelectedLibraryWatched(true)}>
+                        {libraryBulkUpdating ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
+                        Mark watched
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="library-grid">
-                  {visibleLibrary.map((item) => <LibraryCoverCard key={item.id} item={item} onOpen={openLibraryTitle} onFavorite={toggleFavorite} />)}
+                  {visibleLibrary.map((item) => (
+                    <LibraryCoverCard
+                      key={item.id}
+                      item={item}
+                      onOpen={openLibraryTitle}
+                      onFavorite={toggleFavorite}
+                      selectionMode={librarySelectionMode}
+                      selected={selectedLibraryIds.has(item.id)}
+                      onSelectedChange={(selected) => toggleLibrarySelection(item.id, selected)}
+                    />
+                  ))}
                   {visibleLibrary.length === 0 ? <p className="empty-copy library-empty">No tracked titles match those filters.</p> : null}
                 </div>
               </>
@@ -556,22 +643,22 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
                     ? "Loading releases"
                     : `${unwatchedReleasePage.items.length} of ${unwatchedReleasePage.total} releases`
                   : `${releaseWindowItems.length} ${releaseWindowItems.length === 1 ? "release" : "releases"}`}</span>
-                <AlertDialog open={recentReleaseDialogOpen} onOpenChange={setRecentReleaseDialogOpen}>
-                  <AlertDialogTrigger render={<Button variant="outline" size="sm" />} disabled={markingRecentReleases || recentUnwatchedReleases.length === 0}>
-                    {markingRecentReleases ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
-                    Mark recent watched
+                <AlertDialog open={recentEpisodeDialogOpen} onOpenChange={setRecentEpisodeDialogOpen}>
+                  <AlertDialogTrigger render={<Button variant="outline" size="sm" />} disabled={markingRecentEpisodes || recentUnwatchedEpisodes.length === 0}>
+                    {markingRecentEpisodes ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
+                    Mark recent episodes watched
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Mark {recentUnwatchedReleases.length} recent {recentUnwatchedReleases.length === 1 ? "release" : "releases"} watched?</AlertDialogTitle>
+                      <AlertDialogTitle>Mark {recentUnwatchedEpisodes.length} recent {recentUnwatchedEpisodes.length === 1 ? "episode" : "episodes"} watched?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This marks every unwatched episode and movie released during the last 14 days through today. Future releases will not change.
+                        This marks every unwatched episode released during the last 14 days through today. Movies and future episodes will not change.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction disabled={markingRecentReleases} onClick={markRecentReleasesWatched}>
-                        {markingRecentReleases ? "Marking…" : "Mark all watched"}
+                      <AlertDialogAction disabled={markingRecentEpisodes} onClick={markRecentEpisodesWatched}>
+                        {markingRecentEpisodes ? "Marking…" : "Mark episodes watched"}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -582,6 +669,7 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
             <ReleaseWindowGrid
               items={releaseWindowItems}
               onFavorite={toggleFavorite}
+              onOpen={openLibraryTitle}
               referenceDate={currentDate}
               emptyMessage={releaseWindowFilter === "UNWATCHED"
                 ? unwatchedLoading
@@ -642,26 +730,56 @@ function LibrarySummary({ data }: { data: DashboardData }) {
   )
 }
 
-function LibraryCoverCard({ item, onOpen, onFavorite }: {
+function LibraryCoverCard({ item, onOpen, onFavorite, selectionMode, selected, onSelectedChange }: {
   item: LibraryItem
   onOpen: (event: MouseEvent<HTMLAnchorElement>, mediaId: string) => void
   onFavorite: (id: string, favorite: boolean) => Promise<void>
+  selectionMode: boolean
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
 }) {
   const releasedEpisodes = item.episodes.filter((episode) => hasReleased(episode.airDate))
   const watchedReleased = releasedEpisodes.filter((episode) => episode.watched).length
   const schedule = getShowSchedule(item)
   return (
-    <article className="library-cover-card">
-      <a className="library-cover-link" href={`#library/${encodeURIComponent(item.id)}`} onClick={(event) => onOpen(event, item.id)} aria-label={`Open ${item.title}`}>
+    <article className="library-cover-card" data-selected={selected || undefined}>
+      <a
+        className="library-cover-link"
+        href={`#library/${encodeURIComponent(item.id)}`}
+        onClick={(event) => {
+          if (selectionMode) {
+            event.preventDefault()
+            onSelectedChange(!selected)
+            return
+          }
+          onOpen(event, item.id)
+        }}
+        aria-label={selectionMode ? `${selected ? "Deselect" : "Select"} ${item.title}` : `Open ${item.title}`}
+      >
         <MediaArtwork className="library-poster" backdrop={item.poster || item.backdrop} title={item.title} />
         <span className="library-cover-gradient" aria-hidden="true" />
         <Badge className="library-cover-type" variant="secondary">{item.type === "SHOW" ? "TV show" : "Movie"}</Badge>
       </a>
+      {selectionMode ? (
+        <Checkbox
+          className="library-cover-select"
+          checked={selected}
+          onCheckedChange={(checked) => onSelectedChange(checked === true)}
+          aria-label={`Select ${item.title}`}
+        />
+      ) : null}
       <Button className="library-cover-favorite" variant="secondary" size="icon" aria-label={`${item.favorite ? "Remove" : "Add"} ${item.title} ${item.favorite ? "from" : "to"} favorites`} onClick={() => onFavorite(item.id, item.favorite)}>
         <HeartIcon className={item.favorite ? "heart-filled" : ""} />
       </Button>
       <div className="library-cover-copy">
-        <a href={`#library/${encodeURIComponent(item.id)}`} onClick={(event) => onOpen(event, item.id)}>{item.title}</a>
+        <a href={`#library/${encodeURIComponent(item.id)}`} onClick={(event) => {
+          if (selectionMode) {
+            event.preventDefault()
+            onSelectedChange(!selected)
+            return
+          }
+          onOpen(event, item.id)
+        }}>{item.title}</a>
         <p>{formatYear(item.releaseDate)} · {item.type === "SHOW" ? `${watchedReleased} of ${releasedEpisodes.length} watched` : item.status === "WATCHED" ? "Watched" : "Not watched"}</p>
         {schedule ? <p className="library-cover-status"><CalendarDaysIcon aria-hidden="true" />{schedule.summary}</p> : null}
       </div>
@@ -684,12 +802,21 @@ function LibraryDetail({ item, onBack, onEpisodeWatched, onEpisodesWatched, onFa
   const [removing, setRemoving] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [operationMessage, setOperationMessage] = useState<string | null>(null)
+  const [episodeSort, setEpisodeSort] = useState<EpisodeSort>("SEASON_ASC")
+  const orderedEpisodes = useMemo(() => [...item.episodes].sort((left, right) => {
+    if (episodeSort === "NEWEST_FIRST") {
+      const dateDifference = new Date(right.airDate).getTime() - new Date(left.airDate).getTime()
+      if (dateDifference !== 0) return dateDifference
+      return right.season - left.season || right.number - left.number
+    }
+    return left.season - right.season || left.number - right.number
+  }), [episodeSort, item.episodes])
   const seasonGroups = useMemo(() => {
     const groups = new Map<number, Episode[]>()
-    for (const episode of item.episodes) groups.set(episode.season, [...(groups.get(episode.season) ?? []), episode])
+    for (const episode of orderedEpisodes) groups.set(episode.season, [...(groups.get(episode.season) ?? []), episode])
     return [...groups.entries()]
-  }, [item.episodes])
-  const releasedEpisodes = item.episodes.filter((episode) => hasReleased(episode.airDate))
+  }, [orderedEpisodes])
+  const releasedEpisodes = orderedEpisodes.filter((episode) => hasReleased(episode.airDate))
   const watchedReleased = releasedEpisodes.filter((episode) => episode.watched).length
   const allReleasedWatched = releasedEpisodes.length > 0 && watchedReleased === releasedEpisodes.length
   const movieWatched = item.status === "WATCHED"
@@ -845,7 +972,19 @@ function LibraryDetail({ item, onBack, onEpisodeWatched, onEpisodesWatched, onFa
       {operationMessage ? <p className="library-operation-message" role="status">{operationMessage}</p> : null}
       {item.type === "SHOW" ? (
         <div className="episode-browser library-detail-episodes">
-          <div className="episode-browser-heading"><div><span>Episode guide</span><h2>Every known episode</h2></div><p>{watchedReleased} watched · {releasedEpisodes.length - watchedReleased} available</p></div>
+          <div className="episode-browser-heading">
+            <div><span>Episode guide</span><h2>Every known episode</h2></div>
+            <div className="episode-browser-heading-actions">
+              <label className="episode-sort">
+                <span className="sr-only">Episode order</span>
+                <NativeSelect value={episodeSort} onChange={(event) => setEpisodeSort(event.target.value as EpisodeSort)} aria-label="Episode order">
+                  <NativeSelectOption value="SEASON_ASC">Season &amp; episode</NativeSelectOption>
+                  <NativeSelectOption value="NEWEST_FIRST">Newest episodes first</NativeSelectOption>
+                </NativeSelect>
+              </label>
+              <p>{watchedReleased} watched · {releasedEpisodes.length - watchedReleased} available</p>
+            </div>
+          </div>
           {releasedEpisodes.length > 0 ? (
             <div className="episode-bulk-toolbar" aria-label="Bulk episode actions">
               <span>{selectedEpisodeIds.size} selected</span>
@@ -966,9 +1105,10 @@ function UpcomingPanel({ items, onFavorite }: {
   )
 }
 
-function ReleaseWindowGrid({ items, onFavorite, referenceDate, emptyMessage }: {
+function ReleaseWindowGrid({ items, onFavorite, onOpen, referenceDate, emptyMessage }: {
   items: UpcomingItem[]
   onFavorite: (id: string, favorite: boolean) => Promise<void>
+  onOpen: (event: MouseEvent<HTMLAnchorElement>, mediaId: string) => void
   referenceDate: Date
   emptyMessage: string
 }) {
@@ -978,18 +1118,20 @@ function ReleaseWindowGrid({ items, onFavorite, referenceDate, emptyMessage }: {
         const relative = formatReleaseDistance(item.date, referenceDate)
         return (
           <article className="release-window-card" data-period={relative.period} key={item.id}>
-            <div className="release-window-visual">
-              <MediaArtwork className="release-window-art" backdrop={item.backdrop} title={item.title} />
-              <Badge className="release-window-status" variant={relative.period === "today" ? "default" : "secondary"}>{relative.label}</Badge>
-              <Button className="release-window-favorite" variant="ghost" size="icon" aria-label={`${item.favorite ? "Remove" : "Add"} ${item.title} ${item.favorite ? "from" : "to"} favorites`} onClick={() => onFavorite(item.mediaId, item.favorite)}>
-                <HeartIcon className={item.favorite ? "heart-filled" : ""} />
-              </Button>
-            </div>
-            <div className="release-window-copy">
-              <time dateTime={item.date}>{formatWeekdayDate(item.date)}</time>
-              <h2>{item.title}</h2>
-              <p>{item.detail}</p>
-            </div>
+            <a className="release-window-card-link" href={`#library/${encodeURIComponent(item.mediaId)}`} onClick={(event) => onOpen(event, item.mediaId)} aria-label={`Open ${item.title}`}>
+              <div className="release-window-visual">
+                <MediaArtwork className="release-window-art" backdrop={item.backdrop} title={item.title} />
+                <Badge className="release-window-status" variant={relative.period === "today" ? "default" : "secondary"}>{relative.label}</Badge>
+              </div>
+              <div className="release-window-copy">
+                <time dateTime={item.date}>{formatWeekdayDate(item.date)}</time>
+                <h2>{item.title}</h2>
+                <p>{item.detail}</p>
+              </div>
+            </a>
+            <Button className="release-window-favorite" variant="ghost" size="icon" aria-label={`${item.favorite ? "Remove" : "Add"} ${item.title} ${item.favorite ? "from" : "to"} favorites`} onClick={() => onFavorite(item.mediaId, item.favorite)}>
+              <HeartIcon className={item.favorite ? "heart-filled" : ""} />
+            </Button>
           </article>
         )
       })}

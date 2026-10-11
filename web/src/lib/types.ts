@@ -85,6 +85,7 @@ export type AdminOverview = {
 }
 
 export type AccountSecurityStatus = {
+  email: string
   totpEnabled: boolean
   totpEnabledAt: string | null
   recoveryCodesRemaining: number

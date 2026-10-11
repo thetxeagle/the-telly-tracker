@@ -109,6 +109,7 @@ test("account security routes require authentication", async () => {
     const confirm = await fetch(`${origin}/api/account/totp/confirm`, { method: "POST" })
     const recovery = await fetch(`${origin}/api/account/totp/recovery-codes`, { method: "POST" })
     const disable = await fetch(`${origin}/api/account/totp`, { method: "DELETE" })
+    const password = await fetch(`${origin}/api/account/password`, { method: "PUT" })
 
     assert.equal(status.status, 401)
     assert.equal(createCalendar.status, 401)
@@ -117,6 +118,28 @@ test("account security routes require authentication", async () => {
     assert.equal(confirm.status, 401)
     assert.equal(recovery.status, 401)
     assert.equal(disable.status, 401)
+    assert.equal(password.status, 401)
+  })
+})
+
+test("password reset entry points do not expose account state for malformed requests", async () => {
+  await withServer(async (origin) => {
+    const request = await fetch(`${origin}/api/auth/password-reset/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "not-an-email" }),
+    })
+    const reset = await fetch(`${origin}/api/auth/password-reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "invalid", newPassword: "new-password" }),
+    })
+
+    assert.equal(request.status, 202)
+    assert.deepEqual(await request.json(), {
+      message: "If an account matches and email delivery is configured, a reset link is on the way.",
+    })
+    assert.equal(reset.status, 400)
   })
 })
 
@@ -147,14 +170,14 @@ test("serves built web assets and the SPA fallback without masking unknown API r
   })
 })
 
-test("authenticated provider routes report missing server-side TMDB configuration", async () => {
+test("legacy sessions without a session version are rejected", async () => {
   const session = jwt.sign({ sub: "user-1" }, jwtSecret, { expiresIn: "1m" })
   await withServer(async (origin) => {
-    const response = await fetch(`${origin}/api/providers/search?q=halo`, {
+    const response = await fetch(`${origin}/api/auth/me`, {
       headers: { Cookie: `telly_session=${session}` },
     })
 
-    assert.equal(response.status, 503)
-    assert.deepEqual(await response.json(), { error: "TMDB is not configured" })
+    assert.equal(response.status, 401)
+    assert.deepEqual(await response.json(), { error: "Session expired" })
   })
 })

@@ -107,6 +107,34 @@ export function AccountSecurity() {
     setCopied(true)
   }
 
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const currentPassword = String(form.get("currentPassword") ?? "")
+    const newPassword = String(form.get("newPassword") ?? "")
+    const confirmation = String(form.get("confirmation") ?? "")
+    setError("")
+    setMessage("")
+    if (newPassword !== confirmation) {
+      setError("New password and confirmation do not match")
+      return
+    }
+    setSubmitting(true)
+    try {
+      await api("/api/account/password", {
+        method: "PUT",
+        body: JSON.stringify({ currentPassword, newPassword, code: String(form.get("code") ?? "") }),
+      })
+      formElement.reset()
+      setMessage("Your password is changed. Other signed-in browsers must sign in again.")
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not change the password")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function generateCalendarFeed() {
     setSubmitting(true)
     setError("")
@@ -171,6 +199,22 @@ export function AccountSecurity() {
 
       {error ? <Alert variant="destructive"><AlertTitle>Account update failed</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
       {message ? <Alert><CheckIcon /><AlertTitle>Account updated</AlertTitle><AlertDescription>{message}</AlertDescription></Alert> : null}
+
+      <Card className="security-card password-card">
+        <form onSubmit={changePassword}>
+          <input type="text" name="username" autoComplete="username" value={status?.email ?? ""} readOnly className="sr-only" tabIndex={-1} aria-hidden="true" />
+          <CardHeader><CardTitle>Password</CardTitle><CardDescription>Change the password used to sign in. This signs out every other browser using your account.</CardDescription></CardHeader>
+          <CardContent>
+            <FieldGroup className="password-form">
+              <Field><FieldLabel htmlFor="current-password">Current password</FieldLabel><Input id="current-password" name="currentPassword" type="password" autoComplete="current-password" minLength={8} maxLength={72} required /></Field>
+              <Field><FieldLabel htmlFor="new-password">New password</FieldLabel><Input id="new-password" name="newPassword" type="password" autoComplete="new-password" minLength={8} maxLength={72} required /><FieldDescription>Use between 8 and 72 characters.</FieldDescription></Field>
+              <Field><FieldLabel htmlFor="confirm-password">Confirm new password</FieldLabel><Input id="confirm-password" name="confirmation" type="password" autoComplete="new-password" minLength={8} maxLength={72} required /></Field>
+              {status?.totpEnabled ? <Field><FieldLabel htmlFor="password-factor">Authenticator or recovery code</FieldLabel><Input id="password-factor" name="code" autoComplete="one-time-code" required /><FieldDescription>A recovery code is consumed when used.</FieldDescription></Field> : null}
+            </FieldGroup>
+          </CardContent>
+          <CardFooter className="security-actions"><Button type="submit" disabled={submitting || !status}><KeyRoundIcon data-icon="inline-start" />{submitting ? "Changing…" : "Change password"}</Button></CardFooter>
+        </form>
+      </Card>
 
       <Card className="security-card">
         <CardHeader>

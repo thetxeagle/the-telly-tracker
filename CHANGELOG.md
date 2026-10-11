@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-11
+
+### Added
+
+- Added authenticated password changes in Account settings and emailed one-hour password-reset links from sign-in.
+
+### Changed
+
+- Changed the deployment example and environment template to pull the public `ghcr.io/thetxeagle/the-telly-tracker:v0.2.1` image by default.
+
+### Security
+
+- Password-reset requests use one generic response, a five-minute per-account cooldown, hashed single-use tokens, and one-hour expiration.
+- Password changes and resets increment a persisted session version so older session cookies are rejected; accounts with 2FA must confirm password changes with an authenticator or recovery code.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
@@ -108,6 +123,7 @@ All notable changes to this project are documented here. The format follows Keep
 - User-scoped API mutations derive identity from verified HTTP-only session cookies.
 - Prisma was pinned to `6.12.0` to avoid the reported `deepmerge-ts` configuration vulnerability.
 
-[Unreleased]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thetxeagle/the-telly-tracker/releases/tag/v0.1.0

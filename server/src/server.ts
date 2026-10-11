@@ -40,6 +40,12 @@ import { shouldGrantAdministrator } from "./registration-policy.js"
 import { createHelmetOptions } from "./security-headers.js"
 import { encryptSmtpPassword, publicSmtpSettings, sendSmtpMail, verifySmtp } from "./smtp.js"
 import {
+  createPasswordResetToken,
+  hashPasswordResetToken,
+  passwordResetCooldownMs,
+  passwordResetRequestMessage,
+} from "./password-reset.js"
+import {
   createLoginChallenge,
   createTotpEnrollment,
   decryptTotpSecret,
@@ -138,6 +144,18 @@ const protectedFactorSchema = z.object({
   password: z.string().min(8).max(72),
   code: factorCodeSchema,
 })
+const passwordResetRequestSchema = z.object({
+  email: z.email().transform((value) => value.toLowerCase()),
+})
+const passwordResetSchema = z.object({
+  token: z.string().regex(/^[a-f0-9]{64}$/),
+  newPassword: z.string().min(8).max(72),
+})
+const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(8).max(72),
+  newPassword: z.string().min(8).max(72),
+  code: z.string().trim().max(20).default(""),
+})
 const librarySchema = z.object({
   favorite: z.boolean().optional(),
   status: z.enum(["PLANNED", "IN_PROGRESS", "WATCHED"]).optional(),
@@ -153,8 +171,8 @@ const providerImportSchema = z.object({
 })
 const calendarTokenSchema = z.string().min(32).max(2_048).regex(/^[A-Za-z0-9._-]+$/)
 
-function setSession(response: Response, userId: string) {
-  const token = jwt.sign({ sub: userId }, config.jwtSecret, { expiresIn: "7d" })
+function setSession(response: Response, userId: string, sessionVersion: number) {
+  const token = jwt.sign({ sub: userId, sv: sessionVersion }, config.jwtSecret, { expiresIn: "7d" })
   response.cookie("telly_session", token, {
     httpOnly: true,
     sameSite: "lax",
@@ -162,6 +180,10 @@ function setSession(response: Response, userId: string) {
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: "/",
   })
+}
+
+function clearSession(response: Response) {
+  response.clearCookie("telly_session", { path: "/" })
 }
 
 function calendarStatus(user: { id: string; calendarFeedEnabled: boolean; calendarFeedVersion: number }) {
@@ -172,7 +194,7 @@ function calendarStatus(user: { id: string; calendarFeedEnabled: boolean; calend
   return { enabled: true, url: calendarFeedUrl(config.calendarPublicUrl, token) }
 }
 
-function authenticate(request: Request, response: Response, next: NextFunction) {
+async function authenticate(request: Request, response: Response, next: NextFunction) {
   const token = request.cookies.telly_session as string | undefined
   if (!token) {
     response.status(401).json({ error: "Authentication required" })
@@ -180,13 +202,15 @@ function authenticate(request: Request, response: Response, next: NextFunction) 
   }
   try {
     const payload = jwt.verify(token, config.jwtSecret)
-    if (typeof payload === "string" || typeof payload.sub !== "string") {
+    if (typeof payload === "string" || typeof payload.sub !== "string" || !Number.isInteger(payload.sv)) {
       throw new Error("Invalid session payload")
     }
+    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { sessionVersion: true } })
+    if (!user || user.sessionVersion !== payload.sv) throw new Error("Session has been revoked")
     response.locals.userId = payload.sub
     next()
   } catch {
-    response.clearCookie("telly_session", { path: "/" })
+    clearSession(response)
     response.status(401).json({ error: "Session expired" })
   }
 }
@@ -329,13 +353,13 @@ app.post("/api/auth/register", async (request, response) => {
       }
       const created = await transaction.user.create({
         data: { name: parsed.data.name, email: parsed.data.email, passwordHash, isAdmin: shouldGrantAdministrator(firstAccount, bootstrapAdmin) },
-        select: { id: true, name: true, email: true, isAdmin: true },
+        select: { id: true, name: true, email: true, isAdmin: true, sessionVersion: true },
       })
       if (invitation) await transaction.invitation.update({ where: { id: invitation.id }, data: { usedAt: new Date() } })
       return created
     })
-    setSession(response, user.id)
-    response.status(201).json({ user })
+    setSession(response, user.id, user.sessionVersion)
+    response.status(201).json({ user: { id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin } })
   } catch (error) {
     if (error instanceof RegistrationPolicyError) {
       response.status(error.status).json({ error: error.message })
@@ -343,6 +367,109 @@ app.post("/api/auth/register", async (request, response) => {
     }
     throw error
   }
+})
+
+app.post("/api/auth/password-reset/request", async (request, response) => {
+  const parsed = passwordResetRequestSchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(202).json({ message: passwordResetRequestMessage })
+    return
+  }
+
+  const now = new Date()
+  const [user, settings] = await Promise.all([
+    prisma.user.findUnique({ where: { email: parsed.data.email }, select: { id: true, email: true } }),
+    getAppSettings(),
+    prisma.passwordResetToken.deleteMany({ where: { expiresAt: { lte: now } } }),
+  ])
+  const smtp = publicSmtpSettings(settings, config.smtpEnvironment)
+  if (!user || !smtp.enabled) {
+    response.status(202).json({ message: passwordResetRequestMessage })
+    return
+  }
+
+  const recentRequest = await prisma.passwordResetToken.findFirst({
+    where: { userId: user.id, createdAt: { gt: new Date(now.getTime() - passwordResetCooldownMs) } },
+    select: { id: true },
+  })
+  if (recentRequest) {
+    response.status(202).json({ message: passwordResetRequestMessage })
+    return
+  }
+
+  const reset = createPasswordResetToken(now)
+  await prisma.$transaction([
+    prisma.passwordResetToken.deleteMany({ where: { userId: user.id } }),
+    prisma.passwordResetToken.create({
+      data: { userId: user.id, tokenHash: reset.tokenHash, expiresAt: reset.expiresAt },
+    }),
+  ])
+
+  const resetUrl = new URL(config.webOrigin)
+  resetUrl.searchParams.set("reset", reset.token)
+  try {
+    await sendSmtpMail(
+      settings,
+      config.settingsEncryptionKey,
+      {
+        to: user.email,
+        subject: "Reset your Telly Tracker password",
+        text: `Use this link to reset your Telly Tracker password: ${resetUrl.toString()}\n\nThis link expires in one hour and can be used once. If you did not request it, you can ignore this email.`,
+        html: `<p>Use the link below to reset your Telly Tracker password.</p><p><a href="${resetUrl.toString()}">Reset password</a></p><p>This link expires in one hour and can be used once. If you did not request it, you can ignore this email.</p>`,
+      },
+      config.smtpEnvironment
+    )
+  } catch (error) {
+    await prisma.passwordResetToken.deleteMany({ where: { tokenHash: reset.tokenHash } })
+    console.error("Password reset email delivery failed", error)
+  }
+
+  response.status(202).json({ message: passwordResetRequestMessage })
+})
+
+app.post("/api/auth/password-reset", async (request, response) => {
+  const parsed = passwordResetSchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: "That password reset link is invalid or the new password is not allowed" })
+    return
+  }
+
+  const tokenHash = hashPasswordResetToken(parsed.data.token)
+  const reset = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: { user: { select: { id: true, passwordHash: true } } },
+  })
+  if (!reset || reset.usedAt || reset.expiresAt <= new Date()) {
+    response.status(410).json({ error: "That password reset link is invalid or has expired" })
+    return
+  }
+  if (await bcrypt.compare(parsed.data.newPassword, reset.user.passwordHash)) {
+    response.status(409).json({ error: "Choose a password you have not already been using" })
+    return
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12)
+  const changed = await prisma.$transaction(async (transaction) => {
+    const claimed = await transaction.passwordResetToken.updateMany({
+      where: { id: reset.id, usedAt: null, expiresAt: { gt: new Date() } },
+      data: { usedAt: new Date() },
+    })
+    if (claimed.count !== 1) return false
+    await transaction.user.update({
+      where: { id: reset.user.id },
+      data: { passwordHash, sessionVersion: { increment: 1 } },
+    })
+    await transaction.passwordResetToken.deleteMany({ where: { userId: reset.user.id } })
+    await transaction.loginChallenge.deleteMany({ where: { userId: reset.user.id } })
+    return true
+  })
+  if (!changed) {
+    response.status(410).json({ error: "That password reset link is invalid or has expired" })
+    return
+  }
+
+  clearSession(response)
+  response.status(204).end()
 })
 
 app.post("/api/auth/login", async (request, response) => {
@@ -370,7 +497,7 @@ app.post("/api/auth/login", async (request, response) => {
     response.json({ requiresTwoFactor: true, challengeToken: challenge.token, expiresAt: challenge.expiresAt })
     return
   }
-  setSession(response, user.id)
+  setSession(response, user.id, user.sessionVersion)
   response.json({ requiresTwoFactor: false, user: { id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin } })
 })
 
@@ -384,7 +511,7 @@ app.post("/api/auth/login/totp", async (request, response) => {
   const result = await prisma.$transaction(async (transaction) => {
     const challenge = await transaction.loginChallenge.findUnique({
       where: { tokenHash },
-      include: { user: { select: { id: true, name: true, email: true, isAdmin: true, totpSecretEncrypted: true, totpLastUsedStep: true } } },
+      include: { user: { select: { id: true, name: true, email: true, isAdmin: true, sessionVersion: true, totpSecretEncrypted: true, totpLastUsedStep: true } } },
     })
     if (!challenge || challenge.expiresAt <= new Date() || challenge.attempts >= 5) {
       if (challenge) await transaction.loginChallenge.delete({ where: { id: challenge.id } })
@@ -403,12 +530,12 @@ app.post("/api/auth/login/totp", async (request, response) => {
     response.status(401).json({ error: "That code is invalid, expired, or has already been used" })
     return
   }
-  setSession(response, result.user.id)
+  setSession(response, result.user.id, result.user.sessionVersion)
   response.json({ user: { id: result.user.id, name: result.user.name, email: result.user.email, isAdmin: result.user.isAdmin } })
 })
 
 app.post("/api/auth/logout", (_request, response) => {
-  response.clearCookie("telly_session", { path: "/" })
+  clearSession(response)
   response.status(204).end()
 })
 
@@ -503,16 +630,62 @@ app.get("/api/account/security", authenticate, async (_request, response) => {
   const [user, recoveryCodesRemaining] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { id: true, totpEnabledAt: true, calendarFeedEnabled: true, calendarFeedVersion: true },
+      select: { id: true, email: true, totpEnabledAt: true, calendarFeedEnabled: true, calendarFeedVersion: true },
     }),
     prisma.totpRecoveryCode.count({ where: { userId, usedAt: null } }),
   ])
   response.json({
+    email: user.email,
     totpEnabled: Boolean(user.totpEnabledAt),
     totpEnabledAt: user.totpEnabledAt,
     recoveryCodesRemaining,
     calendarFeed: calendarStatus(user),
   })
+})
+
+app.put("/api/account/password", authenticate, async (request, response) => {
+  const parsed = passwordChangeSchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: "Enter your current password and a new password between 8 and 72 characters" })
+    return
+  }
+  const userId = response.locals.userId as string
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
+  if (!(await bcrypt.compare(parsed.data.currentPassword, user.passwordHash))) {
+    response.status(401).json({ error: "Current password is incorrect" })
+    return
+  }
+  if (await bcrypt.compare(parsed.data.newPassword, user.passwordHash)) {
+    response.status(409).json({ error: "Choose a password you have not already been using" })
+    return
+  }
+  if (user.totpEnabledAt && !parsed.data.code) {
+    response.status(400).json({ error: "Enter your current authenticator or recovery code" })
+    return
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12)
+  const updated = await prisma.$transaction(async (transaction) => {
+    if (user.totpEnabledAt) {
+      const accepted = await consumeUserFactor(transaction, user, parsed.data.code)
+      if (!accepted) return null
+    }
+    const changed = await transaction.user.update({
+      where: { id: userId },
+      data: { passwordHash, sessionVersion: { increment: 1 } },
+      select: { sessionVersion: true },
+    })
+    await transaction.passwordResetToken.deleteMany({ where: { userId } })
+    await transaction.loginChallenge.deleteMany({ where: { userId } })
+    return changed
+  })
+  if (!updated) {
+    response.status(401).json({ error: "That authenticator or recovery code is invalid or already used" })
+    return
+  }
+
+  setSession(response, userId, updated.sessionVersion)
+  response.json({ changed: true })
 })
 
 app.post("/api/account/calendar", authenticate, async (_request, response) => {

@@ -54,15 +54,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { api, ApiError } from "@/lib/api"
-import type { DashboardData, Episode, LibraryItem, ReleaseItem, UnwatchedReleasePage, UpcomingItem } from "@/lib/types"
+import type { DashboardData, Episode, EpisodeSort, LibraryItem, ReleaseItem, UnwatchedReleasePage, UpcomingItem } from "@/lib/types"
 
 type DashboardProps = { data: DashboardData; onRefresh: () => Promise<void>; onLogout: () => void }
 type DashboardView = "home" | "library" | "discover" | "release-calendar" | "account" | "admin"
 type LibraryMediaFilter = "ALL" | LibraryItem["type"]
 type LibrarySort = "TITLE_ASC" | "LATEST_EPISODE_DESC" | "RELEASE_DESC" | "RELEASE_ASC"
 type ReleaseWindowFilter = "ALL" | "UNWATCHED"
-type EpisodeSort = "SEASON_ASC" | "NEWEST_FIRST"
-
 const emptyUnwatchedReleasePage: UnwatchedReleasePage = { items: [], total: 0, nextCursor: null }
 
 const dashboardViews: Array<{ id: DashboardView; label: string }> = [
@@ -505,7 +503,9 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
           <section aria-labelledby="library-heading">
             {selectedLibraryItem ? (
               <LibraryDetail
+                key={`${selectedLibraryItem.id}:${data.user.episodeSort}`}
                 item={selectedLibraryItem}
+                defaultEpisodeSort={data.user.episodeSort}
                 onBack={closeLibraryTitle}
                 onEpisodeWatched={setEpisodeWatched}
                 onEpisodesWatched={setEpisodesWatched}
@@ -728,7 +728,7 @@ export function Dashboard({ data, onRefresh, onLogout }: DashboardProps) {
         ) : null}
 
         {activeView === "admin" && data.user.isAdmin ? <AdminPortal /> : null}
-        {activeView === "account" ? <AccountSecurity /> : null}
+        {activeView === "account" ? <AccountSecurity onPreferencesChanged={onRefresh} /> : null}
 
         {activeView !== "admin" && activeView !== "account" ? <footer className="provider-credits" aria-label="Media data credits">
           <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" aria-label="The Movie Database">
@@ -815,8 +815,9 @@ function LibraryCoverCard({ item, onOpen, onFavorite, selectionMode, selected, o
   )
 }
 
-function LibraryDetail({ item, onBack, onEpisodeWatched, onEpisodesWatched, onFavorite, onMovieWatched, onRemove }: {
+function LibraryDetail({ item, defaultEpisodeSort, onBack, onEpisodeWatched, onEpisodesWatched, onFavorite, onMovieWatched, onRemove }: {
   item: LibraryItem
+  defaultEpisodeSort: EpisodeSort
   onBack: () => void
   onEpisodeWatched: (id: string, watched: boolean) => Promise<void>
   onEpisodesWatched: (ids: string[], watched: boolean) => Promise<void>
@@ -830,7 +831,7 @@ function LibraryDetail({ item, onBack, onEpisodeWatched, onEpisodesWatched, onFa
   const [removing, setRemoving] = useState(false)
   const [removeOpen, setRemoveOpen] = useState(false)
   const [operationMessage, setOperationMessage] = useState<string | null>(null)
-  const [episodeSort, setEpisodeSort] = useState<EpisodeSort>("SEASON_ASC")
+  const [episodeSort, setEpisodeSort] = useState<EpisodeSort>(defaultEpisodeSort)
   const orderedEpisodes = useMemo(() => [...item.episodes].sort((left, right) => {
     if (episodeSort === "NEWEST_FIRST") {
       const dateDifference = new Date(right.airDate).getTime() - new Date(left.airDate).getTime()

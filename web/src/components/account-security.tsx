@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react"
-import { CalendarDaysIcon, CheckIcon, CopyIcon, KeyRoundIcon, LinkIcon, RefreshCwIcon, ShieldCheckIcon, ShieldOffIcon, SmartphoneIcon, UnlinkIcon } from "lucide-react"
+import { browserSupportsWebAuthn, startRegistration, type PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser"
+import { CalendarDaysIcon, CheckIcon, CopyIcon, FingerprintIcon, KeyRoundIcon, LinkIcon, RefreshCwIcon, ShieldCheckIcon, ShieldOffIcon, SmartphoneIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp"
+import { Switch } from "@/components/ui/switch"
 import { api, ApiError } from "@/lib/api"
 import type { AccountSecurityStatus, TotpEnrollment } from "@/lib/types"
 
 type ProtectedAction = "recovery" | "disable" | null
 type CalendarAction = "regenerate" | "disable" | null
 
-export function AccountSecurity() {
+export function AccountSecurity({ onPreferencesChanged }: { onPreferencesChanged: () => Promise<void> }) {
   const [status, setStatus] = useState<AccountSecurityStatus | null>(null)
   const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(null)
   const [confirmationCode, setConfirmationCode] = useState("")
@@ -27,6 +29,9 @@ export function AccountSecurity() {
   const [message, setMessage] = useState("")
   const [copied, setCopied] = useState(false)
   const [calendarCopied, setCalendarCopied] = useState(false)
+  const [savingPreferences, setSavingPreferences] = useState(false)
+  const [passkeyToDelete, setPasskeyToDelete] = useState<string | null>(null)
+  const passkeySupported = window.isSecureContext && browserSupportsWebAuthn()
 
   const loadStatus = useCallback(async () => {
     setStatus(await api<AccountSecurityStatus>("/api/account/security"))
@@ -49,6 +54,43 @@ export function AccountSecurity() {
       setConfirmationCode("")
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not start two-factor setup")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function addPasskey() {
+    setSubmitting(true)
+    setError("")
+    setMessage("")
+    try {
+      const ceremony = await api<{ options: PublicKeyCredentialCreationOptionsJSON; ceremonyToken: string }>("/api/account/passkeys/options", { method: "POST" })
+      const credential = await startRegistration({ optionsJSON: ceremony.options })
+      await api("/api/account/passkeys", {
+        method: "POST",
+        body: JSON.stringify({ ceremonyToken: ceremony.ceremonyToken, response: credential }),
+      })
+      await loadStatus()
+      setMessage("Your passkey is ready for passwordless sign-in.")
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Passkey setup was cancelled or could not be completed")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function deletePasskey() {
+    if (!passkeyToDelete) return
+    setSubmitting(true)
+    setError("")
+    setMessage("")
+    try {
+      await api(`/api/account/passkeys/${passkeyToDelete}`, { method: "DELETE" })
+      setPasskeyToDelete(null)
+      await loadStatus()
+      setMessage("The passkey was removed.")
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not remove the passkey")
     } finally {
       setSubmitting(false)
     }
@@ -151,6 +193,29 @@ export function AccountSecurity() {
     }
   }
 
+  async function setNewestEpisodesFirst(enabled: boolean) {
+    if (!status) return
+    const previousSort = status.episodeSort
+    const episodeSort = enabled ? "NEWEST_FIRST" : "SEASON_ASC"
+    setSavingPreferences(true)
+    setError("")
+    setMessage("")
+    setStatus((current) => current ? { ...current, episodeSort } : current)
+    try {
+      await api("/api/account/preferences", {
+        method: "PATCH",
+        body: JSON.stringify({ episodeSort }),
+      })
+      await onPreferencesChanged()
+      setMessage("Your default episode order is updated.")
+    } catch (caught) {
+      setStatus((current) => current ? { ...current, episodeSort: previousSort } : current)
+      setError(caught instanceof ApiError ? caught.message : "Could not update viewing preferences")
+    } finally {
+      setSavingPreferences(false)
+    }
+  }
+
   async function copyCalendarUrl() {
     if (!status?.calendarFeed.url) return
     try {
@@ -194,11 +259,37 @@ export function AccountSecurity() {
     <section aria-labelledby="account-security-heading" className="account-security">
       <header className="view-heading account-security-heading">
         <div className="admin-heading-icon"><ShieldCheckIcon aria-hidden="true" /></div>
-        <div><h1 id="account-security-heading">Account settings</h1><p>Manage sign-in protection and private calendar access.</p></div>
+        <div><h1 id="account-security-heading">Account settings</h1><p>Manage viewing defaults, sign-in protection, and private calendar access.</p></div>
       </header>
 
       {error ? <Alert variant="destructive"><AlertTitle>Account update failed</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
       {message ? <Alert><CheckIcon /><AlertTitle>Account updated</AlertTitle><AlertDescription>{message}</AlertDescription></Alert> : null}
+
+      <Card className="security-card">
+        <CardHeader>
+          <CardTitle>Viewing preferences</CardTitle>
+          <CardDescription>Choose how show pages open. You can still change the order for the title you are viewing.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!status ? <p className="empty-copy">Loading viewing preferences…</p> : (
+            <FieldGroup>
+              <Field orientation="horizontal" data-disabled={savingPreferences}>
+                <FieldContent>
+                  <FieldLabel htmlFor="newest-episodes-first">Newest episodes first</FieldLabel>
+                  <FieldDescription>Open episode guides with the latest air dates at the top instead of season one.</FieldDescription>
+                </FieldContent>
+                <Switch
+                  id="newest-episodes-first"
+                  checked={status.episodeSort === "NEWEST_FIRST"}
+                  onCheckedChange={setNewestEpisodesFirst}
+                  disabled={savingPreferences}
+                  aria-label="Use newest episodes first by default"
+                />
+              </Field>
+            </FieldGroup>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="security-card password-card">
         <form onSubmit={changePassword}>
@@ -214,6 +305,37 @@ export function AccountSecurity() {
           </CardContent>
           <CardFooter className="security-actions"><Button type="submit" disabled={submitting || !status}><KeyRoundIcon data-icon="inline-start" />{submitting ? "Changing…" : "Change password"}</Button></CardFooter>
         </form>
+      </Card>
+
+      <Card className="security-card">
+        <CardHeader>
+          <div className="security-card-title-row">
+            <div><CardTitle>Passkeys</CardTitle><CardDescription>Sign in with your fingerprint, face, device PIN, or security key instead of entering your password and authenticator code.</CardDescription></div>
+            <Badge variant={status?.passkeys.length ? "default" : "outline"}>{status?.passkeys.length ? `${status.passkeys.length} registered` : "None registered"}</Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!status ? <p className="empty-copy">Loading passkeys…</p> : status.passkeys.length ? (
+            <div className="passkey-list">
+              {status.passkeys.map((passkey, index) => <div className="passkey-item" key={passkey.id}>
+                <div className="security-status-mark"><FingerprintIcon aria-hidden="true" /></div>
+                <div>
+                  <h3>Passkey {status.passkeys.length - index}</h3>
+                  <p>Added {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(passkey.createdAt))}{passkey.lastUsedAt ? ` · Last used ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(passkey.lastUsedAt))}` : " · Not used yet"}</p>
+                </div>
+                <Badge variant="outline">{passkey.deviceType === "multiDevice" || passkey.backedUp ? "Synced" : "This device"}</Badge>
+                <Button type="button" size="icon" variant="ghost" aria-label={`Remove passkey ${status.passkeys.length - index}`} onClick={() => setPasskeyToDelete(passkey.id)}><Trash2Icon /></Button>
+              </div>)}
+            </div>
+          ) : (
+            <div className="security-empty-state">
+              <div className="security-status-mark"><FingerprintIcon aria-hidden="true" /></div>
+              <div><h3>Use a safer, faster sign-in</h3><p>A passkey is protected by your device and resists phishing. Your password remains available as a fallback.</p></div>
+            </div>
+          )}
+          {!passkeySupported ? <p className="passkey-unavailable">Passkeys require a supported browser and a secure HTTPS connection.</p> : null}
+        </CardContent>
+        {status ? <CardFooter className="security-actions"><Button onClick={addPasskey} disabled={submitting || !passkeySupported}><FingerprintIcon data-icon="inline-start" />{submitting ? "Waiting for device…" : "Add a passkey"}</Button></CardFooter> : null}
       </Card>
 
       <Card className="security-card">
@@ -321,6 +443,19 @@ export function AccountSecurity() {
               </DialogFooter>
             </FieldGroup>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(passkeyToDelete)} onOpenChange={(open) => { if (!open) setPasskeyToDelete(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove this passkey?</DialogTitle>
+            <DialogDescription>This device or security key will stop signing in to Telly Tracker. Your password and any other passkeys will still work.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPasskeyToDelete(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" disabled={submitting} onClick={deletePasskey}>{submitting ? "Removing…" : "Remove passkey"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

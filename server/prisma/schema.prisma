@@ -24,6 +24,16 @@ enum RegistrationMode {
   CLOSED
 }
 
+enum EpisodeSort {
+  SEASON_ASC
+  NEWEST_FIRST
+}
+
+enum WebAuthnChallengePurpose {
+  REGISTRATION
+  AUTHENTICATION
+}
+
 model User {
   id                         String             @id @default(cuid())
   name                       String
@@ -38,6 +48,7 @@ model User {
   totpLastUsedStep           Int?
   calendarFeedEnabled        Boolean            @default(false)
   calendarFeedVersion        Int                @default(0)
+  episodeSort                EpisodeSort        @default(SEASON_ASC)
   createdAt                  DateTime           @default(now())
   updatedAt                  DateTime           @updatedAt
   library                    LibraryEntry[]
@@ -46,6 +57,38 @@ model User {
   totpRecoveryCodes          TotpRecoveryCode[]
   loginChallenges            LoginChallenge[]
   passwordResetTokens        PasswordResetToken[]
+  passkeys                   Passkey[]
+  webAuthnChallenges         WebAuthnChallenge[]
+}
+
+model Passkey {
+  id           String   @id @default(cuid())
+  userId       String
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  transports   String[] @default([])
+  deviceType   String
+  backedUp     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model WebAuthnChallenge {
+  id        String                    @id @default(cuid())
+  userId    String?
+  tokenHash String                    @unique
+  challenge String
+  purpose   WebAuthnChallengePurpose
+  expiresAt DateTime
+  createdAt DateTime                  @default(now())
+  user      User?                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
 }
 
 model PasswordResetToken {

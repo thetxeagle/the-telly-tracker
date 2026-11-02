@@ -110,6 +110,10 @@ test("account security routes require authentication", async () => {
     const recovery = await fetch(`${origin}/api/account/totp/recovery-codes`, { method: "POST" })
     const disable = await fetch(`${origin}/api/account/totp`, { method: "DELETE" })
     const password = await fetch(`${origin}/api/account/password`, { method: "PUT" })
+    const preferences = await fetch(`${origin}/api/account/preferences`, { method: "PATCH" })
+    const passkeyOptions = await fetch(`${origin}/api/account/passkeys/options`, { method: "POST" })
+    const registerPasskey = await fetch(`${origin}/api/account/passkeys`, { method: "POST" })
+    const removePasskey = await fetch(`${origin}/api/account/passkeys/passkey-1`, { method: "DELETE" })
 
     assert.equal(status.status, 401)
     assert.equal(createCalendar.status, 401)
@@ -119,6 +123,23 @@ test("account security routes require authentication", async () => {
     assert.equal(recovery.status, 401)
     assert.equal(disable.status, 401)
     assert.equal(password.status, 401)
+    assert.equal(preferences.status, 401)
+    assert.equal(passkeyOptions.status, 401)
+    assert.equal(registerPasskey.status, 401)
+    assert.equal(removePasskey.status, 401)
+  })
+})
+
+test("passkey verification rejects malformed ceremonies before credential lookup", async () => {
+  await withServer(async (origin) => {
+    const response = await fetch(`${origin}/api/auth/passkey`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ceremonyToken: "invalid", response: {} }),
+    })
+
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { error: "That passkey sign-in request is invalid" })
   })
 })
 

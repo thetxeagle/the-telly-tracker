@@ -75,8 +75,29 @@ test("users can bulk-update released episodes and remove a title without losing 
 
     const dashboard = await fetch(`${origin}/api/dashboard`, { headers: { Cookie: cookie } })
     assert.equal(dashboard.status, 200)
-    const initialData = await dashboard.json() as { library: Array<{ imdbId: string | null }> }
+    const initialData = await dashboard.json() as { user: { episodeSort: string }; library: Array<{ imdbId: string | null }> }
     assert.equal(initialData.library[0]?.imdbId, "tt0903747")
+    assert.equal(initialData.user.episodeSort, "SEASON_ASC")
+
+    const invalidPreferences = await fetch(`${origin}/api/account/preferences`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ episodeSort: "RANDOM" }),
+    })
+    assert.equal(invalidPreferences.status, 400)
+
+    const preferences = await fetch(`${origin}/api/account/preferences`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ episodeSort: "NEWEST_FIRST" }),
+    })
+    assert.equal(preferences.status, 200)
+    assert.deepEqual(await preferences.json(), { episodeSort: "NEWEST_FIRST" })
+
+    const updatedDashboard = await fetch(`${origin}/api/dashboard`, { headers: { Cookie: cookie } })
+    assert.equal(updatedDashboard.status, 200)
+    const updatedData = await updatedDashboard.json() as { user: { episodeSort: string } }
+    assert.equal(updatedData.user.episodeSort, "NEWEST_FIRST")
 
     const bulkWatched = await fetch(`${origin}/api/episodes`, {
       method: "PATCH",

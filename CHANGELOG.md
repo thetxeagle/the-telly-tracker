@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
+### Added
+
+- Added a per-account viewing preference that can open show episode guides with the newest air dates first while retaining the show-page order control for temporary overrides.
+- Added optional discoverable passkeys with Account-page enrollment and removal plus passwordless sign-in using device biometrics, a PIN, or a security key.
+
+### Changed
+
+- Increased Account settings card padding at desktop and phone widths so form controls and supporting copy have a more comfortable inset.
+- Changed the deployment example and environment template to pull the public `ghcr.io/thetxeagle/the-telly-tracker:v0.3.0` image by default.
+
+### Security
+
+- Passkey ceremonies require device-level user verification, validate the configured origin and relying-party ID, store only public credentials, and use hashed five-minute single-use challenge tokens.
+
 ## [0.2.1] - 2026-10-11
 
 ### Added
@@ -123,7 +139,8 @@ All notable changes to this project are documented here. The format follows Keep
 - User-scoped API mutations derive identity from verified HTTP-only session cookies.
 - Prisma was pinned to `6.12.0` to avoid the reported `deepmerge-ts` configuration vulnerability.
 
-[Unreleased]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/thetxeagle/the-telly-tracker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thetxeagle/the-telly-tracker/releases/tag/v0.1.0

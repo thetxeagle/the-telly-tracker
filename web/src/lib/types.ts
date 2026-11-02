@@ -43,6 +43,7 @@ export type UnwatchedReleasePage = {
 
 export type LibraryStatus = "WATCHED" | "IN_PROGRESS" | "PLANNED"
 export type RegistrationMode = "OPEN" | "INVITE_ONLY" | "CLOSED"
+export type EpisodeSort = "SEASON_ASC" | "NEWEST_FIRST"
 
 export type SetupStatus = {
   requiresOwner: boolean
@@ -86,6 +87,14 @@ export type AdminOverview = {
 
 export type AccountSecurityStatus = {
   email: string
+  episodeSort: EpisodeSort
+  passkeys: Array<{
+    id: string
+    deviceType: string
+    backedUp: boolean
+    createdAt: string
+    lastUsedAt: string | null
+  }>
   totpEnabled: boolean
   totpEnabledAt: string | null
   recoveryCodesRemaining: number
@@ -120,7 +129,7 @@ export type LibraryItem = {
 }
 
 export type DashboardData = {
-  user: { name: string; email: string; isAdmin: boolean }
+  user: { name: string; email: string; isAdmin: boolean; episodeSort: EpisodeSort }
   library: LibraryItem[]
   newReleases: ReleaseItem[]
   upcoming: UpcomingItem[]

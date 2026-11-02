@@ -1,0 +1,4 @@
+CREATE TYPE "EpisodeSort" AS ENUM ('SEASON_ASC', 'NEWEST_FIRST');
+
+ALTER TABLE "User"
+ADD COLUMN "episodeSort" "EpisodeSort" NOT NULL DEFAULT 'SEASON_ASC';

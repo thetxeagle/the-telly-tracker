@@ -293,6 +293,7 @@
   .account-security { @apply max-w-5xl; }
   .account-security-heading { @apply flex items-center gap-4; }
   .account-security > [data-slot="alert"] { @apply mb-5; }
+  .account-security .security-card { --card-spacing: calc(var(--spacing) * 6) !important; }
   .security-card { @apply border border-border bg-card/50 ring-0; }
   .security-card + .security-card { @apply mt-6; }
   .security-card [data-slot="card-title"] { @apply font-heading text-2xl; }
@@ -313,6 +314,13 @@
   .security-recovery-count strong { @apply font-heading text-3xl; }
   .security-recovery-count span { @apply text-xs text-muted-foreground; }
   .security-empty-state { @apply flex items-center gap-5 py-5; }
+  .passkey-list { @apply overflow-hidden rounded-xl border border-border; }
+  .passkey-item { @apply grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-4 border-b border-border p-4 last:border-b-0; }
+  .passkey-item h3 { @apply font-heading text-lg font-semibold; }
+  .passkey-item p, .passkey-unavailable { @apply mt-1 text-sm text-muted-foreground; }
+  .auth-divider { @apply relative my-1 text-center text-xs text-muted-foreground; }
+  .auth-divider::before { content: ""; @apply absolute top-1/2 right-0 left-0 border-t border-border; }
+  .auth-divider span { @apply relative bg-card px-3; }
   .security-actions { @apply justify-end gap-3 border-border; }
   .totp-enrollment { @apply grid grid-cols-[minmax(15rem,0.8fr)_minmax(18rem,1fr)] gap-10; }
   .totp-setup-copy img { @apply mt-5 size-52 rounded-xl border-8 border-foreground bg-foreground; }
@@ -408,6 +416,7 @@
   .security-enabled-grid { @apply grid-cols-[auto_1fr]; } .security-recovery-count { @apply col-span-2 items-start pl-17; }
   .totp-enrollment { @apply grid-cols-1; } .totp-setup-copy img { @apply size-48; }
   .security-actions { @apply flex-col items-stretch; } .security-actions > button { @apply w-full; }
+  .passkey-item { @apply grid-cols-[auto_minmax(0,1fr)_auto]; } .passkey-item > [data-slot="badge"] { @apply col-start-2 justify-self-start; } .passkey-item > [data-slot="button"] { @apply row-span-2 row-start-1 col-start-3; }
   .calendar-feed-panel { @apply grid-cols-1; }
   .recovery-code-grid { @apply grid-cols-1; }
   .setup-shell { @apply px-4 py-6; } .setup-intro h1 { @apply text-4xl; } .setup-card [data-slot="card-title"] { @apply text-2xl; } .setup-config-content { @apply max-h-none; }

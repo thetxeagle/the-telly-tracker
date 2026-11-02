@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
-import { CheckCircle2Icon } from "lucide-react"
+import { CheckCircle2Icon, FingerprintIcon } from "lucide-react"
+import { browserSupportsWebAuthn, startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -26,6 +27,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [factorCode, setFactorCode] = useState("")
   const [useRecoveryCode, setUseRecoveryCode] = useState(false)
   const canRegister = registrationMode === "OPEN" || (registrationMode === "INVITE_ONLY" && Boolean(inviteToken))
+  const passkeySupported = window.isSecureContext && browserSupportsWebAuthn()
 
   useEffect(() => {
     api<{ mode: RegistrationMode }>("/api/registration")
@@ -96,6 +98,25 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       await onAuthenticated()
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not verify that code")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function signInWithPasskey() {
+    setSubmitting(true)
+    setError("")
+    setNotice("")
+    try {
+      const ceremony = await api<{ options: PublicKeyCredentialRequestOptionsJSON; ceremonyToken: string }>("/api/auth/passkey/options", { method: "POST" })
+      const credential = await startAuthentication({ optionsJSON: ceremony.options })
+      await api("/api/auth/passkey", {
+        method: "POST",
+        body: JSON.stringify({ ceremonyToken: ceremony.ceremonyToken, response: credential }),
+      })
+      await onAuthenticated()
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Passkey sign-in was cancelled or could not be completed")
     } finally {
       setSubmitting(false)
     }
@@ -212,6 +233,11 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               <Field><FieldLabel htmlFor="password">Password</FieldLabel><Input id="password" name="password" type="password" autoComplete={registering ? "new-password" : "current-password"} required minLength={8} maxLength={72} />{registering ? <FieldDescription>Use between 8 and 72 characters.</FieldDescription> : <Button className="auth-forgot-link" type="button" variant="link" onClick={() => { setRequestingReset(true); setError(""); setNotice("") }}>Forgot password?</Button>}</Field>
               <Field data-invalid={Boolean(error)}><FieldError>{error}</FieldError></Field>
               <Button type="submit" size="lg" disabled={submitting}>{submitting ? "Opening your library…" : registering ? "Create account" : "Sign in"}</Button>
+              {!registering ? <>
+                <div className="auth-divider"><span>or</span></div>
+                <Button type="button" size="lg" variant="outline" disabled={submitting || !passkeySupported} onClick={signInWithPasskey}><FingerprintIcon data-icon="inline-start" />Sign in with a passkey</Button>
+                {!passkeySupported ? <FieldDescription>Passkeys require a supported browser and a secure HTTPS connection.</FieldDescription> : null}
+              </> : null}
             </FieldGroup>
           </CardContent>
         </form>}

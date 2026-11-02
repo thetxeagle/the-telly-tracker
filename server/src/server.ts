@@ -5,6 +5,14 @@ import cors from "cors"
 import express, { type NextFunction, type Request, type Response } from "express"
 import helmet from "helmet"
 import jwt from "jsonwebtoken"
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type RegistrationResponseJSON,
+} from "@simplewebauthn/server"
 import { createHash, randomBytes } from "node:crypto"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -38,6 +46,7 @@ import {
 import { isInReleaseWindow } from "./release-window.js"
 import { shouldGrantAdministrator } from "./registration-policy.js"
 import { createHelmetOptions } from "./security-headers.js"
+import { createPasskeyCeremony, hashPasskeyCeremonyToken, passkeyRelyingParty } from "./passkeys.js"
 import { encryptSmtpPassword, publicSmtpSettings, sendSmtpMail, verifySmtp } from "./smtp.js"
 import {
   createPasswordResetToken,
@@ -59,6 +68,7 @@ import {
 const prisma = new PrismaClient()
 export const app = express()
 const config = parseConfig(process.env)
+const relyingParty = passkeyRelyingParty(config.webOrigin)
 const catalogService = config.tmdbAccessToken
   ? new CatalogService({
       repository: new PrismaCatalogRepository(prisma),
@@ -155,6 +165,13 @@ const passwordChangeSchema = z.object({
   currentPassword: z.string().min(8).max(72),
   newPassword: z.string().min(8).max(72),
   code: z.string().trim().max(20).default(""),
+})
+const accountPreferencesSchema = z.object({
+  episodeSort: z.enum(["SEASON_ASC", "NEWEST_FIRST"]),
+})
+const passkeyCeremonySchema = z.object({
+  ceremonyToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  response: z.object({ id: z.string().min(1) }).passthrough(),
 })
 const librarySchema = z.object({
   favorite: z.boolean().optional(),
@@ -501,6 +518,88 @@ app.post("/api/auth/login", async (request, response) => {
   response.json({ requiresTwoFactor: false, user: { id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin } })
 })
 
+app.post("/api/auth/passkey/options", async (_request, response) => {
+  const options = await generateAuthenticationOptions({
+    rpID: relyingParty.id,
+    userVerification: "required",
+  })
+  const ceremony = createPasskeyCeremony()
+  await prisma.$transaction([
+    prisma.webAuthnChallenge.deleteMany({ where: { expiresAt: { lte: new Date() } } }),
+    prisma.webAuthnChallenge.create({
+      data: {
+        tokenHash: ceremony.tokenHash,
+        challenge: options.challenge,
+        purpose: "AUTHENTICATION",
+        expiresAt: ceremony.expiresAt,
+      },
+    }),
+  ])
+  response.json({ options, ceremonyToken: ceremony.token, expiresAt: ceremony.expiresAt })
+})
+
+app.post("/api/auth/passkey", async (request, response) => {
+  const parsed = passkeyCeremonySchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: "That passkey sign-in request is invalid" })
+    return
+  }
+  const tokenHash = hashPasskeyCeremonyToken(parsed.data.ceremonyToken)
+  const challenge = await prisma.webAuthnChallenge.findUnique({ where: { tokenHash } })
+  if (!challenge || challenge.purpose !== "AUTHENTICATION" || challenge.expiresAt <= new Date()) {
+    response.status(401).json({ error: "That passkey sign-in request has expired" })
+    return
+  }
+  const claimed = await prisma.webAuthnChallenge.deleteMany({ where: { id: challenge.id, tokenHash } })
+  if (claimed.count !== 1) {
+    response.status(401).json({ error: "That passkey sign-in request was already used" })
+    return
+  }
+  const credentialResponse = parsed.data.response as unknown as AuthenticationResponseJSON
+  const passkey = await prisma.passkey.findUnique({
+    where: { credentialId: credentialResponse.id },
+    include: { user: true },
+  })
+  if (!passkey) {
+    response.status(401).json({ error: "That passkey is not registered here" })
+    return
+  }
+  try {
+    const verification = await verifyAuthenticationResponse({
+      response: credentialResponse,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: relyingParty.origin,
+      expectedRPID: relyingParty.id,
+      credential: {
+        id: passkey.credentialId,
+        publicKey: new Uint8Array(passkey.publicKey),
+        counter: Number(passkey.counter),
+        transports: passkey.transports,
+      },
+      requireUserVerification: true,
+    })
+    if (!verification.verified) throw new Error("Passkey verification failed")
+    const updatedCredential = await prisma.passkey.updateMany({
+      where: { id: passkey.id, counter: passkey.counter },
+      data: {
+        counter: BigInt(verification.authenticationInfo.newCounter),
+        deviceType: verification.authenticationInfo.credentialDeviceType,
+        backedUp: verification.authenticationInfo.credentialBackedUp,
+        lastUsedAt: new Date(),
+      },
+    })
+    if (updatedCredential.count !== 1) throw new Error("Passkey assertion was already consumed")
+    let user = passkey.user
+    if (!user.isAdmin && config.adminEmails.includes(user.email)) {
+      user = await prisma.user.update({ where: { id: user.id }, data: { isAdmin: true } })
+    }
+    setSession(response, user.id, user.sessionVersion)
+    response.json({ user: { id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin } })
+  } catch {
+    response.status(401).json({ error: "That passkey could not be verified" })
+  }
+})
+
 app.post("/api/auth/login/totp", async (request, response) => {
   const parsed = loginChallengeSchema.safeParse(request.body)
   if (!parsed.success) {
@@ -627,20 +726,142 @@ app.get("/api/calendar/:token.ics", async (request, response) => {
 
 app.get("/api/account/security", authenticate, async (_request, response) => {
   const userId = response.locals.userId as string
-  const [user, recoveryCodesRemaining] = await Promise.all([
+  const [user, recoveryCodesRemaining, passkeys] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { id: true, email: true, totpEnabledAt: true, calendarFeedEnabled: true, calendarFeedVersion: true },
+      select: { id: true, email: true, totpEnabledAt: true, calendarFeedEnabled: true, calendarFeedVersion: true, episodeSort: true },
     }),
     prisma.totpRecoveryCode.count({ where: { userId, usedAt: null } }),
+    prisma.passkey.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, deviceType: true, backedUp: true, createdAt: true, lastUsedAt: true },
+    }),
   ])
   response.json({
     email: user.email,
     totpEnabled: Boolean(user.totpEnabledAt),
     totpEnabledAt: user.totpEnabledAt,
     recoveryCodesRemaining,
+    episodeSort: user.episodeSort,
+    passkeys,
     calendarFeed: calendarStatus(user),
   })
+})
+
+app.post("/api/account/passkeys/options", authenticate, async (_request, response) => {
+  const userId = response.locals.userId as string
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: {
+      name: true,
+      email: true,
+      passkeys: { select: { credentialId: true, transports: true } },
+    },
+  })
+  const options = await generateRegistrationOptions({
+    rpName: relyingParty.name,
+    rpID: relyingParty.id,
+    userID: new TextEncoder().encode(userId),
+    userName: user.email,
+    userDisplayName: user.name,
+    attestationType: "none",
+    excludeCredentials: user.passkeys.map((passkey) => ({ id: passkey.credentialId, transports: passkey.transports })),
+    authenticatorSelection: { residentKey: "required", userVerification: "required" },
+  })
+  const ceremony = createPasskeyCeremony()
+  await prisma.$transaction([
+    prisma.webAuthnChallenge.deleteMany({
+      where: { OR: [{ userId, purpose: "REGISTRATION" }, { expiresAt: { lte: new Date() } }] },
+    }),
+    prisma.webAuthnChallenge.create({
+      data: {
+        userId,
+        tokenHash: ceremony.tokenHash,
+        challenge: options.challenge,
+        purpose: "REGISTRATION",
+        expiresAt: ceremony.expiresAt,
+      },
+    }),
+  ])
+  response.json({ options, ceremonyToken: ceremony.token, expiresAt: ceremony.expiresAt })
+})
+
+app.post("/api/account/passkeys", authenticate, async (request, response) => {
+  const parsed = passkeyCeremonySchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: "That passkey registration request is invalid" })
+    return
+  }
+  const userId = response.locals.userId as string
+  const tokenHash = hashPasskeyCeremonyToken(parsed.data.ceremonyToken)
+  const challenge = await prisma.webAuthnChallenge.findUnique({ where: { tokenHash } })
+  if (!challenge || challenge.userId !== userId || challenge.purpose !== "REGISTRATION" || challenge.expiresAt <= new Date()) {
+    response.status(410).json({ error: "That passkey registration request has expired" })
+    return
+  }
+  const claimed = await prisma.webAuthnChallenge.deleteMany({ where: { id: challenge.id, tokenHash } })
+  if (claimed.count !== 1) {
+    response.status(409).json({ error: "That passkey registration request was already used" })
+    return
+  }
+  try {
+    const credentialResponse = parsed.data.response as unknown as RegistrationResponseJSON
+    const verification = await verifyRegistrationResponse({
+      response: credentialResponse,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: relyingParty.origin,
+      expectedRPID: relyingParty.id,
+      requireUserVerification: true,
+    })
+    if (!verification.verified) throw new Error("Passkey verification failed")
+    const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo
+    const passkey = await prisma.passkey.create({
+      data: {
+        userId,
+        credentialId: credential.id,
+        publicKey: Buffer.from(credential.publicKey),
+        counter: BigInt(credential.counter),
+        transports: credential.transports ?? credentialResponse.response.transports ?? [],
+        deviceType: credentialDeviceType,
+        backedUp: credentialBackedUp,
+      },
+      select: { id: true, deviceType: true, backedUp: true, createdAt: true, lastUsedAt: true },
+    })
+    response.status(201).json(passkey)
+  } catch {
+    response.status(400).json({ error: "That passkey could not be registered" })
+  }
+})
+
+app.delete("/api/account/passkeys/:passkeyId", authenticate, async (request, response) => {
+  const passkeyId = z.string().min(1).safeParse(request.params.passkeyId)
+  if (!passkeyId.success) {
+    response.status(400).json({ error: "Choose a valid passkey" })
+    return
+  }
+  const deleted = await prisma.passkey.deleteMany({
+    where: { id: passkeyId.data, userId: response.locals.userId as string },
+  })
+  if (deleted.count !== 1) {
+    response.status(404).json({ error: "Passkey not found" })
+    return
+  }
+  response.status(204).end()
+})
+
+app.patch("/api/account/preferences", authenticate, async (request, response) => {
+  const parsed = accountPreferencesSchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: "Choose a valid default episode order" })
+    return
+  }
+  const user = await prisma.user.update({
+    where: { id: response.locals.userId as string },
+    data: { episodeSort: parsed.data.episodeSort },
+    select: { episodeSort: true },
+  })
+  response.json(user)
 })
 
 app.put("/api/account/password", authenticate, async (request, response) => {
@@ -1034,7 +1255,7 @@ app.delete("/api/admin/users/:userId/totp", authenticate, requireAdmin, async (r
 app.get("/api/dashboard", authenticate, async (_request, response) => {
   const userId = response.locals.userId as string
   const [user, entries, watchedEpisodes, catalog] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, isAdmin: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, email: true, isAdmin: true, episodeSort: true } }),
     prisma.libraryEntry.findMany({
       where: { userId },
       include: { media: { include: { episodes: { orderBy: [{ season: "asc" }, { number: "asc" }] } } } },

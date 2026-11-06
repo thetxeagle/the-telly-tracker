@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+### Fixed
+
+- Prevented the final letter of the shared Telly Tracker wordmark from being clipped when browsers substitute a wider serif font.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
